@@ -97,13 +97,18 @@ func TestEmbededStructs(t *testing.T) {
 		Age int `db:"age"`
 	}
 
-	info, err := Analyze(B{})
+	ClearCache()
+
+	sch, err := Analyze(B{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if info.Fields.Columns().List() != "name, age" {
-		t.Fatalf("expected name, age got = %s", info.Fields.Columns().List())
+	got := sch.Columns().List()
+	expected := "age, name"
+
+	if got != expected {
+		t.Fatalf("expected=%s got=%s", expected, got)
 	}
 
 }

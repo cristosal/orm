@@ -61,6 +61,10 @@ func (s *Schema) Children() []Schema {
 	return children
 }
 
+func ClearCache() {
+	cache = make(map[string]*Schema)
+}
+
 // Analyze returns a schema representing the mapping between the go type and database row.
 // Schemas are cached by table name so as not to repeat analisis unnecesarily.
 func Analyze(v interface{}) (sch *Schema, err error) {
@@ -187,6 +191,7 @@ func MustAnalyze(v interface{}) *Schema {
 	return res
 }
 
+// Columns returns the combined columns of the schemas fields and embeded schemas
 func (sch *Schema) Columns() Columns {
 	var cols Columns
 	cols = append(cols, sch.Fields.Columns()...)
