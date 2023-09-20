@@ -223,7 +223,7 @@ func (fields Fields) Writeable() Fields {
 			continue
 		}
 
-		fields = append(fields, fields[i])
+		f = append(f, fields[i])
 	}
 	return f
 }
