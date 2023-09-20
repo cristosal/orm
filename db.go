@@ -36,7 +36,8 @@ type (
 	ID int64
 
 	scanable interface{ Scaned() }
-	scanner  interface{ Scan(dest ...any) error }
+
+	scanner interface{ Scan(dest ...any) error }
 
 	Record interface{ TableName() string }
 

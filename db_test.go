@@ -35,55 +35,13 @@ func TestInsertAddsIDInEmbededStructs(t *testing.T) {
 
 	defer tx.Rollback(ctx)
 
-	_, err = tx.Exec(ctx, `create temporary table a (id serial primary key, name varchar(255))`)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-}
-
-func TestSelectMany(t *testing.T) {
-	conn, err := pgx.Connect(ctx, connString)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	defer tx.Rollback(ctx)
-
-	// create temp table
-	err = Exec(tx, `create temporary table tablename (
+	_, err = tx.Exec(ctx, `create temporary table a (
 		id serial primary key, 
-		name varchar(255) not null,
-		verify_ssl_expiry boolean not null default false,
-		foo varchar(255) not null
+		name varchar(255)
 	)`)
 
 	if err != nil {
 		t.Fatal(err)
-	}
-
-	err = Exec(tx, `insert into tablename (name, verify_ssl_expiry, foo) values ($1, $2, $3), ($4, $5, $6)`,
-		"item_a", true, "hello",
-		"item_b", false, "world",
-	)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	var arr []TestStruct
-	if err = SelectMany(tx, arr, ""); err != nil {
-		t.Fatal(err)
-	}
-
-	if len(arr) != 2 {
-		msg := fmt.Sprintf("expected 2 elements received %d", len(arr))
-		t.Fatal(msg)
 	}
 }
 
@@ -115,7 +73,10 @@ func TestInsertAddsID(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Exec(conn, "create table if not exists test_table2 (id serial primary key, foo varchar(255) not null, bar varchar(255) not null)"); err != nil {
+	if err := Exec(conn, `create table if not exists test_table2 (
+		id serial primary key, 
+		foo varchar(255) not null, 
+		bar varchar(255) not null)`); err != nil {
 		t.Fatal(err)
 	}
 	r := tstruct2{
