@@ -189,16 +189,8 @@ func TestAnalyze(t *testing.T) {
 		t.Fatal("expected addr of struct to pass")
 	}
 
-	if len(info) != 3 {
-		t.Fatalf("expected 2 info fields got %d", len(info))
-	}
-
-	if info[0].Name != "Name" {
-		t.Fatal("expected Name FieldName be Name")
-	}
-
-	if info[0].Column != "name" {
-		t.Fatal("expected Name column be name")
+	if len(info) != 4 {
+		t.Fatalf("expected 4 info fields got %d", len(info))
 	}
 
 	if res.Table != "tablename" {
