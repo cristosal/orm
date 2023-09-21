@@ -106,6 +106,7 @@ func InnerJoin[T any](r Interface, v1, v2 any, sql string, args ...any) ([]T, er
 	return CollectRows[T](rows)
 }
 
+// Exec executes a given sql statement and returns any error encountered
 func Exec(iface Interface, sql string, args ...any) error {
 	_, err := iface.Exec(context.Background(), sql, args...)
 	return err
@@ -135,10 +136,15 @@ func SelectMany[T any](adpt Interface, v []T, sql string, args ...any) error {
 	return nil
 }
 
-func One(iface Interface, v Record, sql string, args ...any) error {
-	cols := MustAnalyze(v).Fields.Columns().List()
-	table := v.TableName()
-	q := fmt.Sprintf("select %s from %s %s", cols, table, sql)
+// One returns the first row encountered that satisfies the sql query
+func One(iface Interface, v any, sql string, args ...any) error {
+	sch, err := Analyze(v)
+	if err != nil {
+		return err
+	}
+
+	cols := sch.Fields.Columns().List()
+	q := fmt.Sprintf("select %s from %s %s", cols, sch.Table, sql)
 	row := iface.QueryRow(context.Background(), q, args...)
 	return Scan(row, v)
 }

@@ -1,6 +1,7 @@
 package pgxx
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -39,6 +40,49 @@ func getTx(t *testing.T) Interface {
 
 	ClearCache()
 	return tx
+}
+
+func TestQueryOne(t *testing.T) {
+	tx := getTx(t)
+	ClearCache()
+	tx.Exec(context.Background(), `create temporary table b (
+		id serial primary key,
+		name varchar(255) not null,
+		age int not null
+	)`)
+
+	type A struct {
+		ID   ID
+		Name string
+	}
+
+	type B struct {
+		A
+		Age int
+	}
+	v := B{A: A{Name: "Test"}, Age: 12}
+	if err := Insert(tx, &v); err != nil {
+		t.Fatal(err)
+	}
+
+	var b B
+
+	if err := One(tx, &b, "where name = $1", "Test"); err != nil {
+		t.Fatal(err)
+	}
+
+	if b.ID != v.ID {
+		t.Fatalf("expected id=%d got = %d", v.ID, b.ID)
+	}
+
+	if b.Name != v.Name {
+		t.Fatalf("expected=%s got = %s", v.Name, b.Name)
+	}
+
+	if b.Age != v.Age {
+		t.Fatalf("expected=%d got=%d", v.Age, b.Age)
+	}
+
 }
 
 func TestInsertAddsIDInEmbededStructs(t *testing.T) {
