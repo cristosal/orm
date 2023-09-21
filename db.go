@@ -48,15 +48,17 @@ type (
 	}
 )
 
+// String is the string representation of a serial id
 func (id ID) String() string {
 	return strconv.FormatInt(int64(id), 10)
 }
 
-// SetSQLDir root for running scripts
-func SetSQLDir(dir fs.FS) {
+// SetScriptDir root for running scripts
+func SetScriptDir(dir fs.FS) {
 	sqlfs = dir
 }
 
+// ParseID attempts to parse string as postgres serial id
 func ParseID(str string) (ID, error) {
 	id, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
@@ -104,36 +106,8 @@ func InnerJoin[T any](r Interface, v1, v2 any, sql string, args ...any) ([]T, er
 	return CollectRows[T](rows)
 }
 
-func Seed[T any](a Interface, items []T) error {
-	var t T
-	sch, err := Analyze(&t)
-	if err != nil {
-		return err
-	}
-
-	var (
-		cols   = sch.Fields.Writeable().Columns()
-		ncols  = len(cols)
-		nitems = len(items)
-		values []any
-		list   []string
-	)
-
-	for i := 0; i < nitems; i++ {
-		list = append(list, fmt.Sprintf("(%s)", cols.ValueList((i+1)*ncols)))
-		vals, err := WriteableValues(items[i])
-		if err != nil {
-			return err
-		}
-		values = append(values, vals...)
-	}
-
-	sql := fmt.Sprintf("insert into %s (%s) values %s on conflict do nothing", sch.Table, cols.List(), strings.Join(list, ", "))
-	return Exec(a, sql, values...)
-}
-
-func Exec(a Interface, sql string, args ...any) error {
-	_, err := a.Exec(context.Background(), sql, args...)
+func Exec(iface Interface, sql string, args ...any) error {
+	_, err := iface.Exec(context.Background(), sql, args...)
 	return err
 }
 
@@ -161,38 +135,38 @@ func SelectMany[T any](adpt Interface, v []T, sql string, args ...any) error {
 	return nil
 }
 
-func One(a Interface, v Record, sql string, args ...any) error {
+func One(iface Interface, v Record, sql string, args ...any) error {
 	cols := MustAnalyze(v).Fields.Columns().List()
 	table := v.TableName()
 	q := fmt.Sprintf("select %s from %s %s", cols, table, sql)
-	row := a.QueryRow(context.Background(), q, args...)
+	row := iface.QueryRow(context.Background(), q, args...)
 	return Scan(row, v)
 }
 
-func SelectOne(a Interface, v Record, sql string, args ...any) scanner {
+func SelectOne(iface Interface, v Record, sql string, args ...any) scanner {
 	cols := MustAnalyze(v).Fields.Columns().List()
 	table := v.TableName()
 	q := fmt.Sprintf("select %s from %s %s", cols, table, sql)
-	return a.QueryRow(context.Background(), q, args...)
+	return iface.QueryRow(context.Background(), q, args...)
 }
 
-func Select(a Interface, v Record, sql string, args ...any) (Rows, error) {
+func Select(iface Interface, v Record, sql string, args ...any) (Rows, error) {
 	rep := MustAnalyze(v)
 	cols := rep.Fields.Columns().List()
 	table := v.TableName()
 	q := fmt.Sprintf("select %s from %s %s", cols, table, sql)
-	return a.Query(context.Background(), q, args...)
+	return iface.Query(context.Background(), q, args...)
 }
 
-func All(a Interface, v Record) (Rows, error) {
+func All(iface Interface, v Record) (Rows, error) {
 	cols := MustAnalyze(v).Fields.Columns().List()
 	table := v.TableName()
 	q := fmt.Sprintf("select %s from %s", cols, table)
-	return a.Query(context.Background(), q)
+	return iface.Query(context.Background(), q)
 }
 
-func Query[T any](a Interface, sql string, args ...any) ([]T, error) {
-	rows, err := a.Query(context.Background(), sql, args...)
+func Query[T any](iface Interface, sql string, args ...any) ([]T, error) {
+	rows, err := iface.Query(context.Background(), sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -200,7 +174,7 @@ func Query[T any](a Interface, sql string, args ...any) ([]T, error) {
 	return CollectRows[T](rows)
 }
 
-func Insert(db Interface, v any) error {
+func Insert(iface Interface, v any) error {
 	sch, err := Analyze(v)
 	if err != nil {
 		return err
@@ -216,7 +190,7 @@ func Insert(db Interface, v any) error {
 
 	id, index, err := sch.Fields.Identity()
 	if errors.Is(err, ErrNoIdentity) {
-		return Exec(db, sql, vals...)
+		return Exec(iface, sql, vals...)
 	}
 
 	if err != nil {
@@ -224,19 +198,19 @@ func Insert(db Interface, v any) error {
 	}
 
 	sql = fmt.Sprintf("%s returning %s", sql, id.Column)
-	row := db.QueryRow(ctx, sql, vals...)
+	row := iface.QueryRow(ctx, sql, vals...)
 	// address of id value on struct
 	addr := reflect.ValueOf(v).Elem().FieldByIndex(index).Addr().Interface()
 	return row.Scan(addr)
 }
 
-func Update(a Interface, r any) error {
+func Update(iface Interface, r any) error {
 	sql, vals, err := updateQ(r)
 	if err != nil {
 		return err
 	}
 
-	_, err = a.Exec(context.Background(), sql, vals...)
+	_, err = iface.Exec(context.Background(), sql, vals...)
 	return err
 }
 
