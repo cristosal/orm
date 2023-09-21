@@ -27,7 +27,7 @@ type Person struct {
 
 // TableName tells pgxx which table to use for the given struct
 // if not implemented pgxx will use the snake-cased version of the struct name ie) person
-func TableName() string {
+func (p *Person) TableName() string {
     return "person"
 }
 
