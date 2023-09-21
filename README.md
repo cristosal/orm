@@ -2,12 +2,19 @@
 
 A library that facilitates common sql queries with pgx
 
+- Inserts that assign id field from database to struct
+- Selects and queries which support generics
+- Struct fields to database columns via `db` tags
+- Support for pagination
+- ReadOnly fields
+
+## Installation
+
+`go get -u github.com/cristosal/pgxx`
 
 ## Usage
 
-Here is a simple example of an insert statement
-
-`go get -u github.com/cristosal/pgxx`
+Here is a simple example how to insert and update structs
 
 ```go
 package main
@@ -22,6 +29,7 @@ import (
 )
 
 type Person struct {
+    ID      pgxx.ID `db:"id"`
     Name    string  `db:"name"`
     Age     int     `db:"age"`
 }
