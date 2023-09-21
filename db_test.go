@@ -43,9 +43,10 @@ func TestInsertAddsIDInEmbededStructs(t *testing.T) {
 	tx := getTx(t)
 	ClearCache()
 
-	tx.Exec(ctx, `create temporary table a (
+	tx.Exec(ctx, `create temporary table b (
 		id serial primary key, 
-		name varchar(255)
+		name varchar(255) not null,
+		age int not null
 	)`)
 
 	type A struct {
@@ -60,7 +61,9 @@ func TestInsertAddsIDInEmbededStructs(t *testing.T) {
 
 	v := B{A: A{Name: "Test"}, Age: 12}
 
-	Insert(tx, &v)
+	if err := Insert(tx, &v); err != nil {
+		t.Fatal(err)
+	}
 
 	if v.ID == 0 {
 		t.Fatal("expected id to be set")

@@ -209,7 +209,6 @@ func Insert(db Interface, v any) error {
 	sch := MustAnalyze(v)
 
 	id, index, err := sch.Fields.Identity()
-
 	if errors.Is(err, ErrNoIdentity) {
 		return Exec(db, sql, vals...)
 	}
@@ -230,7 +229,6 @@ func insertStmt(v any) (sql string, values []any, err error) {
 		return
 	}
 
-	// add writable columns from both fields
 	var cols = sch.Fields.Writeable().Columns()
 
 	var (
