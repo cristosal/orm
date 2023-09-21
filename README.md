@@ -58,7 +58,19 @@ func main() {
         os.Exit(1)
     }
 
-    fmt.Println("successfully added person")
+    fmt.Printf("successfully added person with id %d\n", p.ID)
+
+    p.Age++
+
+    // returns an error
+    _ = pgxx.Update(conn, &p)
+
+    var found Person
+
+    pgxx.One(conn, &found, "where name = $1", "John Doe")
+
+
+    fmt.Printf("John Doe is %d years old\n", found.Age)
 }
 
 ```
