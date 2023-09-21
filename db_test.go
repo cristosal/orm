@@ -22,7 +22,7 @@ func (ts *TestStruct) TableName() string {
 
 var connString = os.Getenv("TEST_CONNECTION_STRING")
 
-func TestInsertAddsIDInEmbededStructs(t *testing.T) {
+func getTx(t *testing.T) Interface {
 	conn, err := pgx.Connect(ctx, connString)
 	if err != nil {
 		t.Fatal(err)
@@ -33,15 +33,37 @@ func TestInsertAddsIDInEmbededStructs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	defer tx.Rollback(ctx)
+	t.Cleanup(func() {
+		tx.Rollback(ctx)
+	})
+	return tx
+}
 
-	_, err = tx.Exec(ctx, `create temporary table a (
+func TestInsertAddsIDInEmbededStructs(t *testing.T) {
+	tx := getTx(t)
+	ClearCache()
+
+	tx.Exec(ctx, `create temporary table a (
 		id serial primary key, 
 		name varchar(255)
 	)`)
 
-	if err != nil {
-		t.Fatal(err)
+	type A struct {
+		ID   ID
+		Name string
+	}
+
+	type B struct {
+		A
+		Age int
+	}
+
+	v := B{A: A{Name: "Test"}, Age: 12}
+
+	Insert(tx, &v)
+
+	if v.ID == 0 {
+		t.Fatal("expected id to be set")
 	}
 }
 
@@ -127,7 +149,7 @@ func TestInsertQuery(t *testing.T) {
 		Bar: "world",
 	}
 
-	sql, vals, err := insertQ(&st)
+	sql, vals, err := insertStmt(&st)
 
 	if err != nil {
 		t.Fatal(err)
@@ -157,7 +179,7 @@ func TestWritableValues(t *testing.T) {
 		Bar:  true,
 	}
 
-	vals, err := writeableValues(&str)
+	vals, err := WriteableValues(&str)
 	if err != nil {
 		t.Fatal(err)
 	}

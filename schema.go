@@ -1,4 +1,4 @@
-// Package db contains functions that help with PGX
+// Package pgxx contains helper functions for pgx
 package pgxx
 
 import (
@@ -20,7 +20,6 @@ type (
 		Table  string       // Database table name
 		Type   reflect.Type // Underlying reflect type
 		Fields Fields       // Field maps
-		Embeds []Child      // Embeded schemas
 	}
 
 	// Child represents the schema for an embeded struct
@@ -34,16 +33,17 @@ type (
 
 	// Field contains mapping information between struct field and database column
 	Field struct {
-		Name       string      // Name of the field in the struct
-		Column     string      // Name of the database column
-		Index      int         // Index of the field within a struct
-		Identity   bool        // Is an ID field
-		ReadOnly   bool        // Is only for select queries
-		ForeignKey *ForeignKey // Foreign key meta data
+		Name     string  // Name of the field in the struct
+		Column   string  // Name of the database column
+		Index    int     // Index of the field within a struct
+		Identity bool    // Is an ID field
+		ReadOnly bool    // Is only for select queries
+		FK       *FK     // Foreign key meta data
+		Schema   *Schema // Embeded schema
 	}
 
-	// ForeignKey Field Metadata
-	ForeignKey struct {
+	// FK represents foreign key field metadata
+	FK struct {
 		Table  string // Foreign table name
 		Column string // Foreign table column
 	}
@@ -52,15 +52,10 @@ type (
 // IsRoot is true when the schema is not embeded
 func (s *Schema) IsRoot() bool { return s.Parent == nil }
 
-// Children returns embeded schemas
-func (s *Schema) Children() []Schema {
-	var children []Schema
-	for _, e := range s.Embeds {
-		children = append(children, e.Schema)
-	}
-	return children
-}
+// HasSchema returns true when the field contains an embeded schema
+func (f *Field) HasSchema() bool { return f.Schema != nil }
 
+// ClearCache clears the schema cache
 func ClearCache() {
 	cache = make(map[string]*Schema)
 }
@@ -94,22 +89,19 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 	sch = new(Schema)
 	sch.Table = table
 	sch.Type = typ
-	sch.Embeds = make([]Child, 0)
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 
-		// handle embedded structs
 		if field.Anonymous && field.IsExported() {
-			embeded, err := Analyze(val.Field(i).Interface())
+			embeded, _ := Analyze(val.Field(i).Interface())
 			embeded.Parent = sch
-			if err == nil {
-				sch.Embeds = append(sch.Embeds, Child{
-					Index:  i,
-					Schema: *embeded,
-				})
-			}
 
+			sch.Fields = append(sch.Fields, Field{
+				Name:   field.Name,
+				Index:  i,
+				Schema: embeded,
+			})
 			continue
 		}
 
@@ -161,7 +153,7 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 					continue
 				}
 
-				info.ForeignKey = &ForeignKey{
+				info.FK = &FK{
 					Table:  parts[0],
 					Column: parts[1],
 				}
@@ -184,94 +176,83 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 
 // MustAnalyze panics if schema analisis fails. See Analyze for further information
 func MustAnalyze(v interface{}) *Schema {
-	res, err := Analyze(v)
+	sch, err := Analyze(v)
 	if err != nil {
 		panic(err)
 	}
-	return res
+	return sch
 }
 
-// Columns returns the combined columns of the schemas fields and embeded schemas
-func (sch *Schema) Columns() Columns {
-	var cols Columns
-	cols = append(cols, sch.Fields.Columns()...)
-	for i := range sch.Embeds {
-		cols = append(cols, sch.Embeds[i].Schema.Columns()...)
-	}
+// Identity returns the first identity field found
+func (fields Fields) Identity() (*Field, []int, error) {
+	var index []int
 
-	return cols
-}
+	for _, field := range fields {
+		if field.Identity {
+			index = append(index, field.Index)
+			return &field, index, nil
+		}
 
-func (fields Fields) Identity() (*Field, error) {
-	for _, f := range fields {
-		if f.Identity {
-			return &f, nil
+		// returns the first field with the identity
+		if field.HasSchema() {
+			f, indexes, _ := field.Schema.Fields.Identity()
+			if f != nil {
+				index = append(index, field.Index)
+				index = append(index, indexes...)
+				return f, index, nil
+			}
 		}
 	}
-	return nil, ErrNoIdentity
+	return nil, index, ErrNoIdentity
 }
 
+// ForeignKeys are fields representing foreign keys
 func (fields Fields) ForeignKeys() Fields {
 	info := []Field{}
 	for _, f := range fields {
-		if f.ForeignKey != nil {
+		if f.FK != nil {
 			info = append(info, f)
 		}
 	}
 	return info
 }
 
+// Writeable returns all writeable fields
+// A field is writeable if it is not marked as readonly or is an identity field
 func (fields Fields) Writeable() Fields {
-	var f Fields
-	for i := range fields {
-		if fields[i].ReadOnly || fields[i].Identity {
+	var ret Fields
+	for _, field := range fields {
+		if field.ReadOnly || field.Identity {
 			continue
 		}
 
-		f = append(f, fields[i])
+		if field.HasSchema() {
+			ret = append(ret, field.Schema.Fields.Writeable()...)
+			continue
+		}
+
+		ret = append(ret, field)
 	}
-	return f
+
+	return ret
 }
 
-func (fields Fields) Columns() (cols Columns) {
+// Columns returns all database columns for the given fields
+// it goes recursively through fields
+func (fields Fields) Columns() (columns Columns) {
 	for _, f := range fields {
-		cols = append(cols, f.Column)
+		if f.HasSchema() {
+			columns = append(columns, f.Schema.Fields.Columns()...)
+			continue
+		}
+
+		columns = append(columns, f.Column)
 	}
 	return
 }
 
-// ScanValues returns all scannable values from a given struct.
-func (sch *Schema) ScanValues(v interface{}) (values []any, err error) {
-	if err != nil {
-		return nil, err
-	}
-
-	sv, err := inferValue(v)
-	if err != nil {
-		return nil, err
-	}
-
-	// loop through our fields and get the ptr to value
-	for _, f := range sch.Fields {
-		v := sv.Field(f.Index)
-		values = append(values, v.Addr().Interface())
-	}
-
-	// recursive over embeded schemas
-	for _, e := range sch.Embeds {
-		v := sv.Field(e.Index)
-		vals, err := sch.ScanValues(v.Addr().Interface())
-		if err != nil {
-			return nil, err
-		}
-
-		values = append(values, vals...)
-	}
-
-	return values, nil
-}
-
-func writeableValues(v interface{}) (values []any, err error) {
+// ScanableValues returns all scannable values from a given struct.
+func ScanableValues(v interface{}) (values []any, err error) {
 	sch, err := Analyze(v)
 	if err != nil {
 		return nil, err
@@ -282,8 +263,48 @@ func writeableValues(v interface{}) (values []any, err error) {
 		return nil, err
 	}
 
-	for _, field := range sch.Fields.Writeable() {
+	for _, f := range sch.Fields {
+		v := sv.Field(f.Index)
+
+		if f.HasSchema() {
+			recursive, err := ScanableValues(v.Addr().Interface())
+			if err != nil {
+				return nil, err
+			}
+
+			values = append(values, recursive...)
+			continue
+		}
+
+		values = append(values, v.Addr().Interface())
+	}
+
+	return values, nil
+}
+
+// WriteableValues returns the value from struct fields not marked as readonly
+func WriteableValues(v interface{}) (values []any, err error) {
+	sch, err := Analyze(v)
+	if err != nil {
+		return nil, err
+	}
+
+	sv, err := inferValue(v)
+	if err != nil {
+		return nil, err
+	}
+
+	fields := sch.Fields.Writeable()
+
+	for _, field := range fields {
 		f := sv.Field(field.Index)
+
+		if field.HasSchema() {
+			vals, _ := WriteableValues(f.Interface())
+			values = append(values, vals...)
+			continue
+		}
+
 		switch f.Kind() {
 		case reflect.Pointer,
 			reflect.Map,
@@ -300,16 +321,6 @@ func writeableValues(v interface{}) (values []any, err error) {
 			values = append(values, f.Interface())
 		}
 	}
-
-	for _, e := range sch.Embeds {
-		vals, err := writeableValues(sv.Field(e.Index).Interface())
-		if err != nil {
-			return nil, err
-		}
-
-		values = append(values, vals...)
-	}
-
 	return
 }
 

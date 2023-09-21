@@ -19,17 +19,96 @@ func (at *AnalisisTest) TableName() string {
 	return "test_table"
 }
 
-func getConn(t *testing.T) *pgx.Conn {
-	conn, err := pgx.Connect(ctx, connString)
+func TestIdentityIndexes(t *testing.T) {
+	type A struct {
+		Foo string `db:"foo"`
+		ID  ID     `db:"id"`
+	}
+
+	type B struct {
+		A
+		Bar int  `db:"bar"`
+		Baz bool `db:"baz,readonly"`
+	}
+
+	type C struct {
+		B
+		Qux string `db:"qux"`
+	}
+	v := C{B: B{A: A{}}}
+
+	sch := MustAnalyze(&v)
+	_, indexes, err := sch.Fields.Identity()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	t.Cleanup(func() {
-		conn.Close(ctx)
-	})
+	expected := []int{0, 0, 1}
+	if len(expected) != len(indexes) {
+		t.Fatalf("expected indexes to be %d, got=%d", len(expected), len(indexes))
+	}
 
-	return conn
+	for i := range expected {
+		if expected[i] != indexes[i] {
+			t.Fatalf("expected index=%d got=%d", expected[i], indexes[i])
+		}
+	}
+
+}
+
+func TestFieldRecursionInEmbededStructs(t *testing.T) {
+	type A struct {
+		ID  ID     `db:"id"`
+		Foo string `db:"foo"`
+	}
+
+	type B struct {
+		A
+		Bar int  `db:"bar"`
+		Baz bool `db:"baz,readonly"`
+	}
+
+	type C struct {
+		B
+		Qux string `db:"qux"`
+	}
+
+	v := C{
+		Qux: "test",
+		B: B{
+			A:   A{Foo: "foo"},
+			Bar: 42,
+			Baz: true,
+		},
+	}
+
+	schema := MustAnalyze(&v)
+	fields := schema.Fields.Writeable()
+
+	tt := []string{"Foo", "Bar", "Qux"}
+	for i := range tt {
+		if fields[i].Name != tt[i] {
+			t.Fatalf("expected=%s got=%s", tt[i], fields[i].Name)
+		}
+	}
+
+	tt = []string{"id", "foo", "bar", "baz", "qux"}
+	cols := schema.Fields.Columns()
+	for i := range tt {
+		if cols[i] != tt[i] {
+			t.Fatalf("expected column=%s got=%s", tt[i], cols[i])
+		}
+	}
+
+	f, _, err := schema.Fields.Identity()
+	if err != nil {
+		t.Fatalf("expected to have found identity field in embeded struct")
+	}
+
+	if f.Index != 0 {
+		t.Fatalf("expected identity index to be first on struct")
+	}
+
 }
 
 func TestEmbedInsert(t *testing.T) {
@@ -104,7 +183,7 @@ func TestEmbededStructs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := sch.Columns().List()
+	got := sch.Fields.Columns().List()
 	expected := "age, name"
 
 	if got != expected {
@@ -131,8 +210,7 @@ func TestScanableValues(t *testing.T) {
 	}
 
 	at := AnalisisTest{}
-	sch, _ := Analyze(&at)
-	vals, err := sch.ScanValues(&at)
+	vals, err := ScanableValues(&at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -169,7 +247,7 @@ func TestScanableValues(t *testing.T) {
 
 func TestTimeValues(t *testing.T) {
 	st := AnalisisTest{Name: "Test1"}
-	vals, err := writeableValues(&st)
+	vals, err := WriteableValues(&st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +257,7 @@ func TestTimeValues(t *testing.T) {
 	now := time.Now()
 	st.DeletedAt = &now
 
-	vals, err = writeableValues(&st)
+	vals, err = WriteableValues(&st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -187,4 +265,16 @@ func TestTimeValues(t *testing.T) {
 		t.Fatalf("expected: %p recieved: %p", &now, vals[1])
 	}
 
+}
+func getConn(t *testing.T) *pgx.Conn {
+	conn, err := pgx.Connect(ctx, connString)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		conn.Close(ctx)
+	})
+
+	return conn
 }

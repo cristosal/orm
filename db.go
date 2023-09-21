@@ -85,7 +85,7 @@ func InnerJoin[T any](r Interface, v1, v2 any, sql string, args ...any) ([]T, er
 
 	var match *Field
 	for _, fk := range fks {
-		if fk.ForeignKey.Table == r1.Table {
+		if fk.FK.Table == r1.Table {
 			match = &fk
 		}
 	}
@@ -95,7 +95,7 @@ func InnerJoin[T any](r Interface, v1, v2 any, sql string, args ...any) ([]T, er
 	}
 
 	cols := r1.Fields.Columns().PrefixedList("a")
-	sql = fmt.Sprintf("select %s from %s a inner join %s b on a.%s = b.%s %s", cols, r1.Table, rep2.Table, match.ForeignKey.Column, match.Column, sql)
+	sql = fmt.Sprintf("select %s from %s a inner join %s b on a.%s = b.%s %s", cols, r1.Table, rep2.Table, match.FK.Column, match.Column, sql)
 	sql = strings.Trim(sql, " ") // in case empty string was passed as argument
 	rows, err := r.Query(ctx, sql, args...)
 	if err != nil {
@@ -121,7 +121,7 @@ func Seed[T any](a Interface, items []T) error {
 
 	for i := 0; i < nitems; i++ {
 		list = append(list, fmt.Sprintf("(%s)", cols.ValueList((i+1)*ncols)))
-		vals, err := writeableValues(items[i])
+		vals, err := WriteableValues(items[i])
 		if err != nil {
 			return err
 		}
@@ -141,7 +141,7 @@ func SelectMany[T any](adpt Interface, v []T, sql string, args ...any) error {
 	var (
 		ctx    = context.Background()
 		result = MustAnalyze(v)
-		cols   = result.Columns().List()
+		cols   = result.Fields.Columns().List()
 		sql2   = fmt.Sprintf("select %s from %s %s", cols, result.Table, sql)
 	)
 
@@ -201,15 +201,14 @@ func Query[T any](a Interface, sql string, args ...any) ([]T, error) {
 }
 
 func Insert(db Interface, v any) error {
-	sql, vals, err := insertQ(v)
+	sql, vals, err := insertStmt(v)
 	if err != nil {
 		return err
 	}
 
 	sch := MustAnalyze(v)
 
-	// we also should check if we have identity field within the struct and get the address to the interface
-	id, err := sch.Fields.Identity()
+	id, index, err := sch.Fields.Identity()
 
 	if errors.Is(err, ErrNoIdentity) {
 		return Exec(db, sql, vals...)
@@ -219,21 +218,20 @@ func Insert(db Interface, v any) error {
 		return err
 	}
 
-	row := db.QueryRow(context.Background(), fmt.Sprintf("%s returning %s", sql, id.Column), vals...)
-	addr := reflect.ValueOf(v).Elem().Field(id.Index).Addr().Interface()
+	sql = fmt.Sprintf("%s returning %s", sql, id.Column)
+	row := db.QueryRow(ctx, sql, vals...)
+	addr := reflect.ValueOf(v).Elem().FieldByIndex(index).Addr().Interface()
 	return row.Scan(addr)
 }
 
-func insertQ(v any) (sql string, values []any, err error) {
+func insertStmt(v any) (sql string, values []any, err error) {
 	sch, err := Analyze(v)
 	if err != nil {
 		return
 	}
 
+	// add writable columns from both fields
 	var cols = sch.Fields.Writeable().Columns()
-	for _, e := range sch.Embeds {
-		cols = append(cols, e.Schema.Fields.Writeable().Columns()...)
-	}
 
 	var (
 		list  = cols.List()
@@ -243,7 +241,7 @@ func insertQ(v any) (sql string, values []any, err error) {
 	sql = fmt.Sprintf("insert into %s (%s) values (%s)", sch.Table, list, vlist)
 
 	// need to handle write values...
-	values, err = writeableValues(v)
+	values, err = WriteableValues(v)
 	return
 }
 
@@ -263,7 +261,7 @@ func updateQ(r any) (sql string, values []any, err error) {
 		return
 	}
 
-	idField, err := sch.Fields.Identity()
+	idField, indexes, err := sch.Fields.Identity()
 	if err != nil {
 		return
 	}
@@ -272,9 +270,9 @@ func updateQ(r any) (sql string, values []any, err error) {
 
 	placeholders := cols.AssignmentList(1)
 	sql = fmt.Sprintf("update %s set %s", sch.Table, placeholders)
-	values, err = writeableValues(r)
+	values, err = WriteableValues(r)
 	sv := reflect.ValueOf(r).Elem()
-	f := sv.Field(idField.Index)
+	f := sv.FieldByIndex(indexes)
 	id := f.Int()
 	sql += fmt.Sprintf(" where %s = $%d", idField.Column, len(cols)+1)
 	values = append(values, id)
@@ -364,12 +362,7 @@ func CollectRows[T any](rows Rows) (items []T, err error) {
 }
 
 func Scan(s scanner, v any) error {
-	sch, err := Analyze(v)
-	if err != nil {
-		return err
-	}
-
-	vals, err := sch.ScanValues(v)
+	vals, err := ScanableValues(v)
 	if err != nil {
 		return err
 	}
