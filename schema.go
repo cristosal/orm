@@ -55,6 +55,9 @@ func (s *Schema) IsRoot() bool { return s.Parent == nil }
 // HasSchema returns true when the field contains an embeded schema
 func (f *Field) HasSchema() bool { return f.Schema != nil }
 
+// IsWriteable is true when the fields value can be included in an insert or update statement
+func (f *Field) IsWriteable() bool { return !f.ReadOnly && !f.Identity }
+
 // ClearCache clears the schema cache
 func ClearCache() {
 	cache = make(map[string]*Schema)
@@ -221,13 +224,15 @@ func (fields Fields) ForeignKeys() Fields {
 // A field is writeable if it is not marked as readonly or is an identity field
 func (fields Fields) Writeable() Fields {
 	var ret Fields
+
 	for _, field := range fields {
 		if field.ReadOnly || field.Identity {
 			continue
 		}
 
 		if field.HasSchema() {
-			ret = append(ret, field.Schema.Fields.Writeable()...)
+			fs := field.Schema.Fields.Writeable()
+			ret = append(ret, fs...)
 			continue
 		}
 
@@ -294,9 +299,13 @@ func WriteableValues(v interface{}) (values []any, err error) {
 		return nil, err
 	}
 
-	fields := sch.Fields.Writeable()
+	fields := sch.Fields
 
 	for _, field := range fields {
+		if !field.IsWriteable() {
+			continue
+		}
+
 		f := sv.Field(field.Index)
 
 		if field.HasSchema() {
