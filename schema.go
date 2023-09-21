@@ -22,12 +22,6 @@ type (
 		Fields Fields       // Field maps
 	}
 
-	// Child represents the schema for an embeded struct
-	Child struct {
-		Index  int
-		Schema Schema
-	}
-
 	// Fields faciliatates collection methods over fields
 	Fields []Field
 
@@ -226,7 +220,7 @@ func (fields Fields) Writeable() Fields {
 	var ret Fields
 
 	for _, field := range fields {
-		if field.ReadOnly || field.Identity {
+		if !field.IsWriteable() {
 			continue
 		}
 
@@ -299,35 +293,34 @@ func WriteableValues(v interface{}) (values []any, err error) {
 		return nil, err
 	}
 
-	fields := sch.Fields
-
-	for _, field := range fields {
+	for _, field := range sch.Fields {
 		if !field.IsWriteable() {
 			continue
 		}
 
-		f := sv.Field(field.Index)
+		v := sv.Field(field.Index)
 
+		// recursively analyze the schema
 		if field.HasSchema() {
-			vals, _ := WriteableValues(f.Interface())
+			vals, _ := WriteableValues(v.Interface())
 			values = append(values, vals...)
 			continue
 		}
 
-		switch f.Kind() {
+		switch v.Kind() {
 		case reflect.Pointer,
 			reflect.Map,
 			reflect.Interface,
 			reflect.Slice,
 			reflect.Func,
 			reflect.Chan:
-			if f.IsNil() {
+			if v.IsNil() {
 				values = append(values, nil)
 			} else {
-				values = append(values, f.Interface())
+				values = append(values, v.Interface())
 			}
 		default:
-			values = append(values, f.Interface())
+			values = append(values, v.Interface())
 		}
 	}
 	return

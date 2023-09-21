@@ -36,6 +36,8 @@ func getTx(t *testing.T) Interface {
 	t.Cleanup(func() {
 		tx.Rollback(ctx)
 	})
+
+	ClearCache()
 	return tx
 }
 
@@ -127,6 +129,55 @@ func TestInsertAddsID(t *testing.T) {
 	}()
 }
 
+func TestUpdate(t *testing.T) {
+	tx := getTx(t)
+	type A struct {
+		ID   ID
+		Name string
+	}
+
+	type B struct {
+		A
+		Age int
+	}
+
+	tx.Exec(ctx, `create temporary table b (
+		id serial primary key,
+		name varchar not null,
+		age integer not null
+	)`)
+
+	b := &B{A: A{Name: "John Doe"}, Age: 12}
+	if err := Insert(tx, b); err != nil {
+		t.Fatal(err)
+	}
+
+	b.Age = 32
+	b.Name = "Bob Smith"
+	if err := Update(tx, b); err != nil {
+		t.Fatal(err)
+	}
+
+	row := tx.QueryRow(ctx, "select name, age from b where id = $1", b.ID)
+	var (
+		age  int
+		name string
+	)
+
+	if err := row.Scan(&name, &age); err != nil {
+		t.Fatal(err)
+	}
+
+	if age != b.Age {
+		t.Fatalf("expected age=%d got=%d", b.Age, age)
+	}
+
+	if name != b.Name {
+		t.Fatalf("expected name=%s got=%s", b.Name, name)
+	}
+
+}
+
 func TestUpdateQuery(t *testing.T) {
 	st := tstruct2{
 		ID:  3,
@@ -144,25 +195,6 @@ func TestUpdateQuery(t *testing.T) {
 	expect(t, "hello", vals[0])
 	expect(t, "world", vals[1])
 	expect(t, int64(3), vals[2])
-}
-
-func TestInsertQuery(t *testing.T) {
-	st := tstruct2{
-		Foo: "hello",
-		Bar: "world",
-	}
-
-	sql, vals, err := insertStmt(&st)
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	expected := fmt.Sprintf("insert into %s (foo, bar) values ($1, $2)", st.TableName())
-	expect(t, expected, sql)
-	expect(t, 2, len(vals))
-	expect(t, vals[0], "hello")
-	expect(t, vals[1], "world")
 }
 
 type tstruct struct {

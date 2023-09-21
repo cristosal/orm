@@ -201,12 +201,18 @@ func Query[T any](a Interface, sql string, args ...any) ([]T, error) {
 }
 
 func Insert(db Interface, v any) error {
-	sql, vals, err := insertStmt(v)
+	sch, err := Analyze(v)
 	if err != nil {
 		return err
 	}
 
-	sch := MustAnalyze(v)
+	var cols = sch.Fields.Writeable().Columns()
+	sql := fmt.Sprintf("insert into %s (%s) values (%s)", sch.Table, cols.List(), cols.ValueList(1))
+
+	vals, err := WriteableValues(v)
+	if err != nil {
+		return err
+	}
 
 	id, index, err := sch.Fields.Identity()
 	if errors.Is(err, ErrNoIdentity) {
@@ -219,28 +225,9 @@ func Insert(db Interface, v any) error {
 
 	sql = fmt.Sprintf("%s returning %s", sql, id.Column)
 	row := db.QueryRow(ctx, sql, vals...)
+	// address of id value on struct
 	addr := reflect.ValueOf(v).Elem().FieldByIndex(index).Addr().Interface()
 	return row.Scan(addr)
-}
-
-func insertStmt(v any) (sql string, values []any, err error) {
-	sch, err := Analyze(v)
-	if err != nil {
-		return
-	}
-
-	var cols = sch.Fields.Writeable().Columns()
-
-	var (
-		list  = cols.List()
-		vlist = cols.ValueList(1)
-	)
-
-	sql = fmt.Sprintf("insert into %s (%s) values (%s)", sch.Table, list, vlist)
-
-	// need to handle write values...
-	values, err = WriteableValues(v)
-	return
 }
 
 func Update(a Interface, r any) error {
@@ -261,6 +248,7 @@ func updateQ(r any) (sql string, values []any, err error) {
 
 	idField, indexes, err := sch.Fields.Identity()
 	if err != nil {
+		// can happen when there is no id field ie) ErrNoIdentity
 		return
 	}
 
