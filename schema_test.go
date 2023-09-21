@@ -37,6 +37,7 @@ func TestIdentityIndexes(t *testing.T) {
 	}
 	v := C{B: B{A: A{}}}
 
+	ClearCache()
 	sch := MustAnalyze(&v)
 	_, indexes, err := sch.Fields.Identity()
 	if err != nil {
@@ -72,6 +73,7 @@ func TestFieldRecursionInEmbededStructs(t *testing.T) {
 		B
 		Qux string `db:"qux"`
 	}
+	ClearCache()
 
 	v := C{
 		Qux: "test",
@@ -122,6 +124,7 @@ func TestEmbedInsert(t *testing.T) {
 		Age int `db:"age"`
 	}
 
+	ClearCache()
 	conn := getConn(t)
 	tx, err := conn.Begin(ctx)
 	if err != nil {
@@ -184,7 +187,7 @@ func TestEmbededStructs(t *testing.T) {
 	}
 
 	got := sch.Fields.Columns().List()
-	expected := "age, name"
+	expected := "name, age"
 
 	if got != expected {
 		t.Fatalf("expected=%s got=%s", expected, got)
