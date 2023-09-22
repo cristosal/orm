@@ -9,13 +9,13 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-type AnalisisTest struct {
+type teststruct struct {
 	ID        int64      `db:"id"`
 	Name      string     `db:"name"`
 	DeletedAt *time.Time `db:"deleted_at"`
 }
 
-func (at *AnalisisTest) TableName() string {
+func (at *teststruct) TableName() string {
 	return "test_table"
 }
 
@@ -212,7 +212,7 @@ func TestScanableValues(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	at := AnalisisTest{}
+	at := teststruct{}
 	vals, err := ScanableValues(&at)
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +249,7 @@ func TestScanableValues(t *testing.T) {
 }
 
 func TestTimeValues(t *testing.T) {
-	st := AnalisisTest{Name: "Test1"}
+	st := teststruct{Name: "Test1"}
 	vals, err := WriteableValues(&st)
 	if err != nil {
 		t.Fatal(err)
