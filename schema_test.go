@@ -19,6 +19,39 @@ func (at *teststruct) TableName() string {
 	return "test_table"
 }
 
+type M struct{ Name string }
+
+type M1 struct {
+	M
+	Foo string
+}
+
+func (m *M1) Monitor() *M { return &m.M }
+
+type M2 struct {
+	M
+	Bar string
+}
+
+func (m *M2) Monitor() *M { return &m.M }
+
+type Monitor interface {
+	Monitor() *M
+}
+
+func TestAnalyzeUserDefinedInterface(t *testing.T) {
+	var m Monitor = &M1{}
+	sch, err := Analyze(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if sch.Table != "m1" {
+		t.Fatal(sch.Table)
+	}
+
+}
+
 func TestIdentityIndexes(t *testing.T) {
 	type A struct {
 		Foo string `db:"foo"`
