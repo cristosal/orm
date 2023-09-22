@@ -6,13 +6,27 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 )
 
 var (
 	ErrInvalidType = errors.New("invalid type")
 	ErrNoIdentity  = errors.New("identity not found")
 	cache          = make(map[string]*Schema)
+	cacheMtx       = new(sync.RWMutex)
 )
+
+func getSchema(key string) *Schema {
+	cacheMtx.RLock()
+	defer cacheMtx.RUnlock()
+	return cache[key]
+}
+
+func setSchema(key string, s *Schema) {
+	cacheMtx.Lock()
+	defer cacheMtx.Unlock()
+	cache[key] = s
+}
 
 type (
 	// Schema contains the database mapping information for a given type
@@ -66,8 +80,8 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 	rec, isRecord := v.(Record)
 	if isRecord {
 		table = rec.TableName()
-		if cache[table] != nil {
-			return cache[table], nil
+		if getSchema(table) != nil {
+			return getSchema(table), nil
 		}
 	}
 
@@ -80,8 +94,8 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 		table = snakecase(typ.Name())
 	}
 
-	if cache[table] != nil {
-		return cache[table], nil
+	if getSchema(table) != nil {
+		return getSchema(table), nil
 	}
 
 	sch = new(Schema)
@@ -168,7 +182,7 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 		sch.Fields = append(sch.Fields, info)
 	}
 
-	cache[table] = sch
+	setSchema(table, sch)
 	return
 }
 
@@ -361,10 +375,17 @@ func infer(v interface{}) (typ reflect.Type, val reflect.Value, err error) {
 	case reflect.Pointer:
 		typ = typ.Elem()
 		val = val.Elem()
-	}
 
-	if typ.Kind() == reflect.Slice {
-		return infer(val.Interface())
+		// was pointer to interface
+		if typ.Kind() == reflect.Interface {
+			typ = typ.Elem()
+			val = val.Elem()
+		}
+
+		// can be pointer to slice
+		if typ.Kind() == reflect.Slice {
+			return infer(val.Interface())
+		}
 	}
 
 	if typ.Kind() != reflect.Struct {
