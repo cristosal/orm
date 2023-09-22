@@ -115,8 +115,8 @@ func Exec(iface Interface, sql string, args ...any) error {
 	return err
 }
 
-// SelectMany adds the results to the interface that was given
-func SelectMany[T any](adpt Interface, v *[]T, sql string, args ...any) error {
+// Many appends results found to v
+func Many[T any](iface Interface, v *[]T, sql string, args ...any) error {
 	var (
 		ctx    = context.Background()
 		result = MustAnalyze(v)
@@ -124,23 +124,26 @@ func SelectMany[T any](adpt Interface, v *[]T, sql string, args ...any) error {
 		sql2   = fmt.Sprintf("select %s from %s %s", cols, result.Table, sql)
 	)
 
-	rows, err := adpt.Query(ctx, strings.Trim(sql2, " "), args...)
+	rows, err := iface.Query(ctx, strings.Trim(sql2, " "), args...)
 	if err != nil {
 		return err
 	}
 
 	defer rows.Close()
+
 	for rows.Next() {
-		var r T
-		if err := Scan(rows, &r); err != nil {
+		// generics are need for instantiation here
+		var row T
+		if err := Scan(rows, &row); err != nil {
 			return err
 		}
-		*v = append(*v, r)
+		*v = append(*v, row)
 	}
+
 	return nil
 }
 
-// One returns the first row encountered that satisfies the sql query
+// One returns the first row encountered that satisfies the condition
 func One(iface Interface, v any, sql string, args ...any) error {
 	sch, err := Analyze(v)
 	if err != nil {

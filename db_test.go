@@ -51,7 +51,7 @@ func TestSelectMany(t *testing.T) {
 	}
 
 	var persons []Person
-	if err := SelectMany(tx, &persons, ""); err != nil {
+	if err := Many(tx, &persons, ""); err != nil {
 		t.Fatal(err)
 	}
 
