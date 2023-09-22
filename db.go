@@ -117,9 +117,10 @@ func Exec(iface Interface, sql string, args ...any) error {
 
 // Many appends results found to v
 func Many[T any](iface Interface, v *[]T, sql string, args ...any) error {
+	var t T
 	var (
 		ctx    = context.Background()
-		result = MustAnalyze(v)
+		result = MustAnalyze(&t)
 		cols   = result.Fields.Columns().List()
 		sql2   = fmt.Sprintf("select %s from %s %s", cols, result.Table, sql)
 	)
