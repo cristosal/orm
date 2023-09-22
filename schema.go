@@ -3,6 +3,7 @@ package pgxx
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 )
@@ -353,12 +354,21 @@ func infer(v interface{}) (typ reflect.Type, val reflect.Value, err error) {
 	err = ErrInvalidType
 
 	switch typ.Kind() {
-	case reflect.Slice, reflect.Pointer:
+	case reflect.Interface:
+		return infer(val.Elem().Interface())
+	case reflect.Slice:
+		typ = typ.Elem()
+	case reflect.Pointer:
 		typ = typ.Elem()
 		val = val.Elem()
 	}
 
+	if typ.Kind() == reflect.Slice {
+		return infer(val.Interface())
+	}
+
 	if typ.Kind() != reflect.Struct {
+		err = fmt.Errorf("%w: %s", ErrInvalidType, typ.Kind().String())
 		return
 	}
 
