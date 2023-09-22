@@ -2,9 +2,11 @@
 
 A library that facilitates common sql queries with pgx
 
-- Inserts that assign id field from database to struct
-- Selects and queries which support generics
-- Struct fields to database columns via `db` tags
+## Features
+- Unified support for singular connections, pools and transactions via `pgxx.Interface`
+- Inserts that assign id field using returning clause
+- Support for generics
+- Database column mapping via `db` tags
 - Support for pagination
 - ReadOnly fields
 
@@ -14,7 +16,7 @@ A library that facilitates common sql queries with pgx
 
 ## Usage
 
-Here is a simple example how to insert and update structs
+Here is a simple example of insert, update, and find one
 
 ```go
 package main
@@ -68,7 +70,6 @@ func main() {
     var found Person
 
     pgxx.One(conn, &found, "where name = $1", "John Doe")
-
 
     fmt.Printf("John Doe is %d years old\n", found.Age)
 }
