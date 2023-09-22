@@ -36,10 +36,6 @@ type (
 	// ID is the basic serial id type
 	ID int64
 
-	scanable interface{ Scaned() }
-
-	scanner interface{ Scan(dest ...any) error }
-
 	// Record is the interface implemented by structs that want to specify their table name
 	Record interface{ TableName() string }
 
@@ -48,6 +44,10 @@ type (
 		Next() bool
 		scanner
 	}
+
+	scanable interface{ Scaned() }
+
+	scanner interface{ Scan(dest ...any) error }
 )
 
 // String is the string representation of a serial id
@@ -110,25 +110,26 @@ func InnerJoin[T any](r Interface, v1, v2 any, sql string, args ...any) ([]T, er
 }
 
 // Exec executes a given sql statement and returns any error encountered
-func Exec(iface Interface, sql string, args ...any) error {
-	_, err := iface.Exec(context.Background(), sql, args...)
+func Exec(inter Interface, sql string, args ...any) error {
+	_, err := inter.Exec(context.Background(), sql, args...)
 	return err
 }
 
 // Many appends results found to v
-func Many[T any](iface Interface, v *[]T, sql string, args ...any) error {
+func Many[T any](inter Interface, v *[]T, sql string, args ...any) error {
 	var t T
 	schema, err := Analyze(&t)
 	if err != nil {
 		return err
 	}
+
 	var (
 		ctx  = context.Background()
 		cols = schema.Fields.Columns().List()
 		sql2 = fmt.Sprintf("select %s from %s %s", cols, schema.Table, sql)
 	)
 
-	rows, err := iface.Query(ctx, strings.Trim(sql2, " "), args...)
+	rows, err := inter.Query(ctx, strings.Trim(sql2, " "), args...)
 	if err != nil {
 		return err
 	}
@@ -148,7 +149,7 @@ func Many[T any](iface Interface, v *[]T, sql string, args ...any) error {
 }
 
 // One returns the first row encountered that satisfies the condition
-func One(iface Interface, v any, sql string, args ...any) error {
+func One(inter Interface, v any, sql string, args ...any) error {
 	sch, err := Analyze(v)
 	if err != nil {
 		return err
@@ -156,24 +157,25 @@ func One(iface Interface, v any, sql string, args ...any) error {
 
 	cols := sch.Fields.Columns().List()
 	q := fmt.Sprintf("select %s from %s %s", cols, sch.Table, sql)
-	row := iface.QueryRow(context.Background(), q, args...)
+	row := inter.QueryRow(context.Background(), q, args...)
 	return Scan(row, v)
 }
 
-func Select(iface Interface, v Record, sql string, args ...any) (Rows, error) {
+// All returns all available rows in database for type T
+func All[T any](inter Interface, v *[]T) error {
+	return Many(inter, v, "")
+}
+
+func Select(inter Interface, v Record, sql string, args ...any) (Rows, error) {
 	rep := MustAnalyze(v)
 	cols := rep.Fields.Columns().List()
 	table := v.TableName()
 	q := fmt.Sprintf("select %s from %s %s", cols, table, sql)
-	return iface.Query(context.Background(), q, args...)
+	return inter.Query(context.Background(), q, args...)
 }
 
-func All(iface Interface, v Record) (Rows, error) {
-	return Select(iface, v, "")
-}
-
-func Query[T any](iface Interface, sql string, args ...any) ([]T, error) {
-	rows, err := iface.Query(context.Background(), sql, args...)
+func Query[T any](inter Interface, sql string, args ...any) ([]T, error) {
+	rows, err := inter.Query(context.Background(), sql, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +185,7 @@ func Query[T any](iface Interface, sql string, args ...any) ([]T, error) {
 
 // Insert inserts v into it's designated table.
 // ID is set on v if available
-func Insert(iface Interface, v any) error {
+func Insert(inter Interface, v any) error {
 	sch, err := Analyze(v)
 	if err != nil {
 		return err
@@ -199,7 +201,7 @@ func Insert(iface Interface, v any) error {
 
 	id, index, err := sch.Fields.Identity()
 	if errors.Is(err, ErrNoIdentity) {
-		return Exec(iface, sql, vals...)
+		return Exec(inter, sql, vals...)
 	}
 
 	if err != nil {
@@ -207,15 +209,14 @@ func Insert(iface Interface, v any) error {
 	}
 
 	sql = fmt.Sprintf("%s returning %s", sql, id.Column)
-	row := iface.QueryRow(ctx, sql, vals...)
+	row := inter.QueryRow(ctx, sql, vals...)
 	addr := reflect.ValueOf(v).Elem().FieldByIndex(index).Addr().Interface()
 	return row.Scan(addr)
 }
 
 // Update updates v by its identity (ID field) if no id is found,
 // Update return ErrNoIdentity
-func Update(iface Interface, v any) error {
-
+func Update(inter Interface, v any) error {
 	sch, err := Analyze(v)
 	if err != nil {
 		return err
@@ -240,7 +241,7 @@ func Update(iface Interface, v any) error {
 	id := f.Int()
 	sql += fmt.Sprintf(" where %s = $%d", idField.Column, len(cols)+1)
 	values = append(values, id)
-	_, err = iface.Exec(context.Background(), sql, values...)
+	_, err = inter.Exec(context.Background(), sql, values...)
 	return err
 }
 
@@ -261,7 +262,6 @@ func RunScript(conn Interface, script string, tdata any) error {
 		if err != nil {
 			return err
 		}
-
 	}
 
 	b := new(strings.Builder)
@@ -293,6 +293,7 @@ func CollectStrings(rows Rows) ([]string, error) {
 
 }
 
+// CollectIDs scans each row for id value
 func CollectIDs(rows Rows) ([]ID, error) {
 	defer rows.Close()
 	var ids []ID
