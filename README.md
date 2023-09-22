@@ -9,6 +9,7 @@ A library that facilitates common sql queries with pgx
 - Database column mapping via `db` tags
 - Support for pagination
 - ReadOnly fields
+- Support for embeded structs
 
 ## Installation
 
