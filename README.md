@@ -16,7 +16,7 @@ A library that facilitates common sql queries with pgx
 
 ## Usage
 
-Here is a simple example of insert, update, and find one
+Here is a simple example of insert, update, and find one.  **Error checking has been omitted for brevity**
 
 ```go
 package main
@@ -43,35 +43,22 @@ func (p *Person) TableName() string {
 }
 
 func main() {
-    conn, err := pgx.Connect(context.Background(), os.Getenv("CONNECTION_STRING"))
-    if err != nil {
-        fmt.Println("unable to connect to postgres")
-        os.Exit(1)
-    }
+    conn, _ := pgx.Connect(context.Background(), os.Getenv("CONNECTION_STRING"))
 
-    p := Person{
-        Name: "John Doe",
-        Age: 29,
-    }
+    p := Person{Name: "John Doe", Age: 29}
 
-    // inserts into the person table
-    if err := pgxx.Insert(conn, &p): err != nil {
-        fmt.Printf("error inserting person: %v\n", err)
-        os.Exit(1)
-    }
+    _ = pgxx.Insert(conn, &p)
 
+    // p.ID is now set to autgenerated id
     fmt.Printf("successfully added person with id %d\n", p.ID)
-
     p.Age++
 
-    // returns an error
     _ = pgxx.Update(conn, &p)
 
     var found Person
+    _ = pgxx.One(conn, &found, "where name = $1", "John Doe")
 
-    pgxx.One(conn, &found, "where name = $1", "John Doe")
-
-    fmt.Printf("John Doe is %d years old\n", found.Age)
+    fmt.Printf("%s is %d years old\n", found.Name, found.Age) // John Doe is 30 years old 
 }
 
 ```
