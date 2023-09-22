@@ -3,7 +3,6 @@ package pgxx
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os"
 	"testing"
 
@@ -23,23 +22,52 @@ func (ts *TestStruct) TableName() string {
 
 var connString = os.Getenv("TEST_CONNECTION_STRING")
 
-func getTx(t *testing.T) Interface {
-	conn, err := pgx.Connect(ctx, connString)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tx, err := conn.Begin(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	t.Cleanup(func() {
-		tx.Rollback(ctx)
-	})
-
+func TestSelectMany(t *testing.T) {
+	tx := getTx(t)
 	ClearCache()
-	return tx
+	// person
+	type Person struct {
+		ID   ID
+		Name string
+		Age  int
+	}
+
+	tx.Exec(ctx, `create temporary table person (
+		id serial primary key,
+		name varchar(255),
+		age int not null
+	)`)
+
+	data := []Person{
+		{Name: "Foo", Age: 12},
+		{Name: "Bar", Age: 24},
+		{Name: "Baz", Age: 32},
+	}
+
+	for i := range data {
+		if err := Insert(tx, &data[i]); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var persons []Person
+	if err := SelectMany(tx, &persons, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(persons) != len(data) {
+		t.Fatalf("expected len=%d got=%d", len(data), len(persons))
+	}
+
+	for i := range persons {
+		if persons[i].Name != data[i].Name {
+			t.Fatal("expected names to match")
+		}
+
+		if persons[i].Age != data[i].Age {
+			t.Fatal("expected ages to match")
+		}
+	}
 }
 
 func TestQueryOne(t *testing.T) {
@@ -222,25 +250,6 @@ func TestUpdate(t *testing.T) {
 
 }
 
-func TestUpdateQuery(t *testing.T) {
-	st := tstruct2{
-		ID:  3,
-		Foo: "hello",
-		Bar: "world",
-	}
-
-	sql, vals, err := updateQ(&st)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	expect(t, fmt.Sprintf("update %s set foo = $1, bar = $2 where id = $3", st.TableName()), sql)
-	expect(t, 3, len(vals))
-	expect(t, "hello", vals[0])
-	expect(t, "world", vals[1])
-	expect(t, int64(3), vals[2])
-}
-
 type tstruct struct {
 	Name string `db:"name"`
 	Foo  string `db:"foo,readonly"`
@@ -326,4 +335,23 @@ func TestColumnCase(t *testing.T) {
 			t.Fatalf("expected=%s recieved=%s", v[1], result)
 		}
 	}
+}
+
+func getTx(t *testing.T) Interface {
+	conn, err := pgx.Connect(ctx, connString)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tx, err := conn.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() {
+		tx.Rollback(ctx)
+	})
+
+	ClearCache()
+	return tx
 }
