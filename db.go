@@ -33,12 +33,14 @@ type (
 		Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	}
 
+	// ID is the basic serial id type
 	ID int64
 
 	scanable interface{ Scaned() }
 
 	scanner interface{ Scan(dest ...any) error }
 
+	// Record is the interface implemented by structs that want to specify their table name
 	Record interface{ TableName() string }
 
 	Rows interface {
@@ -103,6 +105,7 @@ func InnerJoin[T any](r Interface, v1, v2 any, sql string, args ...any) ([]T, er
 	if err != nil {
 		return nil, err
 	}
+
 	return CollectRows[T](rows)
 }
 
@@ -112,7 +115,8 @@ func Exec(iface Interface, sql string, args ...any) error {
 	return err
 }
 
-func SelectMany[T any](adpt Interface, v []T, sql string, args ...any) error {
+// SelectMany adds the results to the interface that was given
+func SelectMany[T any](adpt Interface, v *[]T, sql string, args ...any) error {
 	var (
 		ctx    = context.Background()
 		result = MustAnalyze(v)
@@ -131,7 +135,7 @@ func SelectMany[T any](adpt Interface, v []T, sql string, args ...any) error {
 		if err := Scan(rows, &r); err != nil {
 			return err
 		}
-		v = append(v, r)
+		*v = append(*v, r)
 	}
 	return nil
 }
@@ -149,13 +153,6 @@ func One(iface Interface, v any, sql string, args ...any) error {
 	return Scan(row, v)
 }
 
-func SelectOne(iface Interface, v Record, sql string, args ...any) scanner {
-	cols := MustAnalyze(v).Fields.Columns().List()
-	table := v.TableName()
-	q := fmt.Sprintf("select %s from %s %s", cols, table, sql)
-	return iface.QueryRow(context.Background(), q, args...)
-}
-
 func Select(iface Interface, v Record, sql string, args ...any) (Rows, error) {
 	rep := MustAnalyze(v)
 	cols := rep.Fields.Columns().List()
@@ -165,10 +162,7 @@ func Select(iface Interface, v Record, sql string, args ...any) (Rows, error) {
 }
 
 func All(iface Interface, v Record) (Rows, error) {
-	cols := MustAnalyze(v).Fields.Columns().List()
-	table := v.TableName()
-	q := fmt.Sprintf("select %s from %s", cols, table)
-	return iface.Query(context.Background(), q)
+	return Select(iface, v, "")
 }
 
 func Query[T any](iface Interface, sql string, args ...any) ([]T, error) {
@@ -180,6 +174,8 @@ func Query[T any](iface Interface, sql string, args ...any) ([]T, error) {
 	return CollectRows[T](rows)
 }
 
+// Insert inserts v into it's designated table.
+// ID is set on v if available
 func Insert(iface Interface, v any) error {
 	sch, err := Analyze(v)
 	if err != nil {
@@ -205,46 +201,44 @@ func Insert(iface Interface, v any) error {
 
 	sql = fmt.Sprintf("%s returning %s", sql, id.Column)
 	row := iface.QueryRow(ctx, sql, vals...)
-	// address of id value on struct
 	addr := reflect.ValueOf(v).Elem().FieldByIndex(index).Addr().Interface()
 	return row.Scan(addr)
 }
 
-func Update(iface Interface, r any) error {
-	sql, vals, err := updateQ(r)
+// Update updates v by its identity (ID field) if no id is found,
+// Update return ErrNoIdentity
+func Update(iface Interface, v any) error {
+
+	sch, err := Analyze(v)
 	if err != nil {
 		return err
 	}
 
-	_, err = iface.Exec(context.Background(), sql, vals...)
-	return err
-}
-
-func updateQ(r any) (sql string, values []any, err error) {
-	sch, err := Analyze(r)
-	if err != nil {
-		return
-	}
-
 	idField, indexes, err := sch.Fields.Identity()
 	if err != nil {
-		// can happen when there is no id field ie) ErrNoIdentity
-		return
+		return err
 	}
 
 	cols := sch.Fields.Writeable().Columns()
 
 	placeholders := cols.AssignmentList(1)
-	sql = fmt.Sprintf("update %s set %s", sch.Table, placeholders)
-	values, err = WriteableValues(r)
-	sv := reflect.ValueOf(r).Elem()
+	sql := fmt.Sprintf("update %s set %s", sch.Table, placeholders)
+	values, err := WriteableValues(v)
+	if err != nil {
+		return err
+	}
+
+	sv := reflect.ValueOf(v).Elem()
 	f := sv.FieldByIndex(indexes)
 	id := f.Int()
 	sql += fmt.Sprintf(" where %s = $%d", idField.Column, len(cols)+1)
 	values = append(values, id)
-	return
+	_, err = iface.Exec(context.Background(), sql, values...)
+	return err
 }
 
+// RunScript executes a script from the directory set using SetScriptDir.
+// scripts are run as template so it is possible to pass data onto the scripts
 func RunScript(conn Interface, script string, tdata any) error {
 	var fpath = script
 	var t *template.Template
@@ -271,23 +265,24 @@ func RunScript(conn Interface, script string, tdata any) error {
 	return Exec(conn, b.String())
 }
 
+// CollectStrings scans each row for a string value
 func CollectStrings(rows Rows) ([]string, error) {
 	defer rows.Close()
-	var ids []string
+	var strs []string
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var str string
+		if err := rows.Scan(&str); err != nil {
 			return nil, err
 		}
 
-		ids = append(ids, id)
+		strs = append(strs, str)
 	}
 
-	if ids == nil {
+	if strs == nil {
 		return nil, ErrNotFound
 	}
 
-	return ids, nil
+	return strs, nil
 
 }
 
