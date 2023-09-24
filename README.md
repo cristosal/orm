@@ -1,9 +1,9 @@
 # pgxx
 
-A library that facilitates common sql queries with pgx
+A library that faciliatates sql queries and struct mappings with pgx
 
 ## Features
-- Unified support for singular connections, pools and transactions via `pgxx.Interface`
+- Unified support for singular connections, pools and transactions via `pgxx.DB` interface
 - Inserts that assign id field using returning clause
 - Support for generics
 - Database column mapping via `db` tags
