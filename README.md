@@ -18,6 +18,7 @@ A library that facilitates common sql queries with pgx
 ## Documentation
 
 View godoc documentation here
+
 https://pkg.go.dev/github.com/cristosal/pgxx
 
 ## Usage
