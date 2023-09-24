@@ -8,6 +8,7 @@ import (
 )
 
 type (
+	// PaginationOptions for configuring paginate query
 	PaginationOptions struct {
 		Record        Record
 		Query         string
@@ -18,6 +19,7 @@ type (
 		SortDirection SortDirection
 	}
 
+	// PaginationResults contain results and stats from pagination query
 	PaginationResults[T any] struct {
 		Total   int64
 		Items   []T
@@ -27,12 +29,13 @@ type (
 		HasNext bool
 	}
 
+	// SortDirection represents the sql sort direction
 	SortDirection = string
 )
 
 const (
-	Ascending  = SortDirection("asc")
-	Descending = SortDirection("desc")
+	SortAscending  = SortDirection("asc")
+	SortDescending = SortDirection("desc")
 )
 
 func (opts *PaginationOptions) queryable() bool {
@@ -47,7 +50,8 @@ func (opts *PaginationOptions) sqlQueryParam() string {
 	return "%" + opts.Query + "%"
 }
 
-func Paginate[T any](a Interface, opts *PaginationOptions) (*PaginationResults[T], error) {
+// Paginate returns paginated data for T
+func Paginate[T any](db DB, opts *PaginationOptions) (*PaginationResults[T], error) {
 	sql := ""
 
 	if opts.queryable() {
@@ -65,9 +69,9 @@ func Paginate[T any](a Interface, opts *PaginationOptions) (*PaginationResults[T
 	var row pgx.Row
 
 	if opts.queryable() {
-		row = a.QueryRow(ctx, countq, opts.sqlQueryParam())
+		row = db.QueryRow(ctx, countq, opts.sqlQueryParam())
 	} else {
-		row = a.QueryRow(ctx, countq)
+		row = db.QueryRow(ctx, countq)
 	}
 	var count int64
 	if err := row.Scan(&count); err != nil {
@@ -81,20 +85,15 @@ func Paginate[T any](a Interface, opts *PaginationOptions) (*PaginationResults[T
 	offset := opts.Page * opts.PageSize
 	sql = fmt.Sprintf("%s limit %d offset %d", sql, opts.PageSize, offset)
 
-	var rows Rows
+	var items []T
 	var err error
 
 	if opts.queryable() {
-		rows, err = Select(a, opts.Record, sql, opts.sqlQueryParam())
+		err = Many(db, &items, sql, opts.sqlQueryParam())
 	} else {
-		rows, err = Select(a, opts.Record, sql)
+		err = Many(db, &items, sql)
 	}
 
-	if err != nil {
-		return nil, err
-	}
-
-	items, err := CollectRows[T](rows)
 	if err != nil {
 		return nil, err
 	}
