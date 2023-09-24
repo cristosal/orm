@@ -267,7 +267,7 @@ func TestWritableValues(t *testing.T) {
 		Bar:  true,
 	}
 
-	vals, err := WriteableValues(&str)
+	vals, err := writeableValues(&str)
 	if err != nil {
 		t.Fatal(err)
 	}

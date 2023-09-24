@@ -265,8 +265,8 @@ func (fields Fields) Columns() (columns Columns) {
 	return
 }
 
-// ScanableValues returns all scannable values from a given struct.
-func ScanableValues(v interface{}) (values []any, err error) {
+// scanableValues returns all scannable values from a given struct.
+func scanableValues(v interface{}) (values []any, err error) {
 	sch, err := Analyze(v)
 	if err != nil {
 		return nil, err
@@ -281,7 +281,7 @@ func ScanableValues(v interface{}) (values []any, err error) {
 		v := sv.Field(f.Index)
 
 		if f.HasSchema() {
-			recursive, err := ScanableValues(v.Addr().Interface())
+			recursive, err := scanableValues(v.Addr().Interface())
 			if err != nil {
 				return nil, err
 			}
@@ -296,8 +296,8 @@ func ScanableValues(v interface{}) (values []any, err error) {
 	return values, nil
 }
 
-// WriteableValues returns the value from struct fields not marked as readonly
-func WriteableValues(v interface{}) (values []any, err error) {
+// writeableValues returns the value from struct fields not marked as readonly
+func writeableValues(v interface{}) (values []any, err error) {
 	sch, err := Analyze(v)
 	if err != nil {
 		return nil, err
@@ -317,7 +317,7 @@ func WriteableValues(v interface{}) (values []any, err error) {
 
 		// recursively analyze the schema
 		if field.HasSchema() {
-			vals, _ := WriteableValues(v.Interface())
+			vals, _ := writeableValues(v.Interface())
 			values = append(values, vals...)
 			continue
 		}

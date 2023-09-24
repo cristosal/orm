@@ -246,7 +246,7 @@ func TestScanableValues(t *testing.T) {
 	}
 
 	at := teststruct{}
-	vals, err := ScanableValues(&at)
+	vals, err := scanableValues(&at)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestScanableValues(t *testing.T) {
 
 func TestTimeValues(t *testing.T) {
 	st := teststruct{Name: "Test1"}
-	vals, err := WriteableValues(&st)
+	vals, err := writeableValues(&st)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestTimeValues(t *testing.T) {
 	now := time.Now()
 	st.DeletedAt = &now
 
-	vals, err = WriteableValues(&st)
+	vals, err = writeableValues(&st)
 	if err != nil {
 		t.Fatal(err)
 	}

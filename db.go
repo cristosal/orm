@@ -140,7 +140,7 @@ func Insert(db DB, v any) error {
 	var cols = sch.Fields.Writeable().Columns()
 	sql := fmt.Sprintf("insert into %s (%s) values (%s)", sch.Table, cols.List(), cols.ValueList(1))
 
-	vals, err := WriteableValues(v)
+	vals, err := writeableValues(v)
 	if err != nil {
 		return err
 	}
@@ -176,7 +176,7 @@ func Update(db DB, v any) error {
 
 	placeholders := cols.AssignmentList(1)
 	sql := fmt.Sprintf("update %s set %s", sch.Table, placeholders)
-	values, err := WriteableValues(v)
+	values, err := writeableValues(v)
 	if err != nil {
 		return err
 	}
@@ -277,7 +277,7 @@ func CollectRows[T any](rows pgx.Rows) (items []T, err error) {
 }
 
 func scan(s scanner, v any) error {
-	vals, err := ScanableValues(v)
+	vals, err := scanableValues(v)
 	if err != nil {
 		return err
 	}
