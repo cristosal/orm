@@ -15,6 +15,11 @@ A library that facilitates common sql queries with pgx
 
 `go get -u github.com/cristosal/pgxx`
 
+## Documentation
+
+View godoc documentation here
+https://pkg.go.dev/github.com/cristosal/pgxx
+
 ## Usage
 
 Here is a simple example of insert, update, and find one.  **Error checking has been omitted for brevity**
