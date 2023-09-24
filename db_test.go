@@ -337,7 +337,7 @@ func TestColumnCase(t *testing.T) {
 	}
 }
 
-func getTx(t *testing.T) Interface {
+func getTx(t *testing.T) DB {
 	conn, err := pgx.Connect(ctx, connString)
 	if err != nil {
 		t.Fatal(err)

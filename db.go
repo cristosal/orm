@@ -25,25 +25,19 @@ var (
 )
 
 type (
-	// Interface is depended on for services that need to use connection or pool methods
-	Interface interface {
+	// DB represents the underlying pgx connection. It can be a single conn, pool or transaction
+	DB interface {
 		Begin(ctx context.Context) (pgx.Tx, error)
 		Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
 		QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
 		Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
 	}
 
-	// ID is the basic serial id type
+	// ID represents a serial id
 	ID int64
 
-	// Record is the interface implemented by structs that want to specify their table name
+	// Record is the interface implemented by structs that want to explicitly specify their table name
 	Record interface{ TableName() string }
-
-	Rows interface {
-		Close()
-		Next() bool
-		scanner
-	}
 
 	scanable interface{ Scaned() }
 
@@ -55,12 +49,12 @@ func (id ID) String() string {
 	return strconv.FormatInt(int64(id), 10)
 }
 
-// SetScriptDir root for running scripts
-func SetScriptDir(dir fs.FS) {
+// SetScriptFS sets the underlying fs for reading sql scripts with RunScript
+func SetScriptFS(dir fs.FS) {
 	sqlfs = dir
 }
 
-// ParseID attempts to parse string as postgres serial id
+// ParseID attempts to parse str into postgres serial id
 func ParseID(str string) (ID, error) {
 	id, err := strconv.ParseInt(str, 10, 64)
 	if err != nil {
@@ -70,53 +64,15 @@ func ParseID(str string) (ID, error) {
 	return ID(id), nil
 }
 
-func InnerJoin[T any](r Interface, v1, v2 any, sql string, args ...any) ([]T, error) {
-	r1, err := Analyze(v1)
-	if err != nil {
-		return nil, err
-	}
-
-	rep2, err := Analyze(v2)
-	if err != nil {
-		return nil, err
-	}
-
-	fks := rep2.Fields.ForeignKeys()
-
-	if len(fks) == 0 {
-		return nil, ErrNoForeignKeys
-	}
-
-	var match *Field
-	for _, fk := range fks {
-		if fk.FK.Table == r1.Table {
-			match = &fk
-		}
-	}
-
-	if match == nil {
-		return nil, ErrNoForeignKeyMatch
-	}
-
-	cols := r1.Fields.Columns().PrefixedList("a")
-	sql = fmt.Sprintf("select %s from %s a inner join %s b on a.%s = b.%s %s", cols, r1.Table, rep2.Table, match.FK.Column, match.Column, sql)
-	sql = strings.Trim(sql, " ") // in case empty string was passed as argument
-	rows, err := r.Query(ctx, sql, args...)
-	if err != nil {
-		return nil, err
-	}
-
-	return CollectRows[T](rows)
-}
-
 // Exec executes a given sql statement and returns any error encountered
-func Exec(inter Interface, sql string, args ...any) error {
-	_, err := inter.Exec(context.Background(), sql, args...)
+func Exec(db DB, sql string, args ...any) error {
+	_, err := db.Exec(context.Background(), sql, args...)
 	return err
 }
 
-// Many appends results found to v
-func Many[T any](inter Interface, v *[]T, sql string, args ...any) error {
+// Many returns all rows encountered that satisfy the sql condition.
+// The sql string is placed immediately after the select statement
+func Many[T any](db DB, v *[]T, sql string, args ...any) error {
 	var t T
 	schema, err := Analyze(&t)
 	if err != nil {
@@ -129,7 +85,7 @@ func Many[T any](inter Interface, v *[]T, sql string, args ...any) error {
 		sql2 = fmt.Sprintf("select %s from %s %s", cols, schema.Table, sql)
 	)
 
-	rows, err := inter.Query(ctx, strings.Trim(sql2, " "), args...)
+	rows, err := db.Query(ctx, strings.Trim(sql2, " "), args...)
 	if err != nil {
 		return err
 	}
@@ -139,7 +95,7 @@ func Many[T any](inter Interface, v *[]T, sql string, args ...any) error {
 	for rows.Next() {
 		// generics are need for instantiation here
 		var row T
-		if err := Scan(rows, &row); err != nil {
+		if err := scan(rows, &row); err != nil {
 			return err
 		}
 		*v = append(*v, row)
@@ -148,8 +104,9 @@ func Many[T any](inter Interface, v *[]T, sql string, args ...any) error {
 	return nil
 }
 
-// One returns the first row encountered that satisfies the condition
-func One(inter Interface, v any, sql string, args ...any) error {
+// One returns the first row encountered that satisfies the sql condition.
+// The sql string is placed immediately after the select statement
+func One(db DB, v any, sql string, args ...any) error {
 	sch, err := Analyze(v)
 	if err != nil {
 		return err
@@ -157,35 +114,24 @@ func One(inter Interface, v any, sql string, args ...any) error {
 
 	cols := sch.Fields.Columns().List()
 	q := fmt.Sprintf("select %s from %s %s", cols, sch.Table, sql)
-	row := inter.QueryRow(context.Background(), q, args...)
-	return Scan(row, v)
+	row := db.QueryRow(context.Background(), q, args...)
+	return scan(row, v)
 }
 
-// All returns all available rows in database for type T
-func All[T any](inter Interface, v *[]T) error {
-	return Many(inter, v, "")
+// First returns the first row encountered for a given table.
+// It is equivalent to One with an empty sql string
+func First(db DB, v any) error {
+	return One(db, v, "")
 }
 
-func Select(inter Interface, v Record, sql string, args ...any) (Rows, error) {
-	rep := MustAnalyze(v)
-	cols := rep.Fields.Columns().List()
-	table := v.TableName()
-	q := fmt.Sprintf("select %s from %s %s", cols, table, sql)
-	return inter.Query(context.Background(), q, args...)
+// All is the same as Many with an empty sql string.
+// It will return all rows from the table deduced by v and is equivalent to a select from table.
+func All[T any](db DB, v *[]T) error {
+	return Many(db, v, "")
 }
 
-func Query[T any](inter Interface, sql string, args ...any) ([]T, error) {
-	rows, err := inter.Query(context.Background(), sql, args...)
-	if err != nil {
-		return nil, err
-	}
-
-	return CollectRows[T](rows)
-}
-
-// Insert inserts v into it's designated table.
-// ID is set on v if available
-func Insert(inter Interface, v any) error {
+// Insert inserts v into it's designated table. ID is set on v if available
+func Insert(db DB, v any) error {
 	sch, err := Analyze(v)
 	if err != nil {
 		return err
@@ -201,7 +147,7 @@ func Insert(inter Interface, v any) error {
 
 	id, index, err := sch.Fields.Identity()
 	if errors.Is(err, ErrNoIdentity) {
-		return Exec(inter, sql, vals...)
+		return Exec(db, sql, vals...)
 	}
 
 	if err != nil {
@@ -209,14 +155,13 @@ func Insert(inter Interface, v any) error {
 	}
 
 	sql = fmt.Sprintf("%s returning %s", sql, id.Column)
-	row := inter.QueryRow(ctx, sql, vals...)
+	row := db.QueryRow(ctx, sql, vals...)
 	addr := reflect.ValueOf(v).Elem().FieldByIndex(index).Addr().Interface()
 	return row.Scan(addr)
 }
 
-// Update updates v by its identity (ID field) if no id is found,
-// Update return ErrNoIdentity
-func Update(inter Interface, v any) error {
+// Update updates v by its identity (ID field). If no id is found, Update return ErrNoIdentity
+func Update(db DB, v any) error {
 	sch, err := Analyze(v)
 	if err != nil {
 		return err
@@ -241,13 +186,13 @@ func Update(inter Interface, v any) error {
 	id := f.Int()
 	sql += fmt.Sprintf(" where %s = $%d", idField.Column, len(cols)+1)
 	values = append(values, id)
-	_, err = inter.Exec(context.Background(), sql, values...)
+	_, err = db.Exec(context.Background(), sql, values...)
 	return err
 }
 
-// RunScript executes a script from the directory set using SetScriptDir.
+// RunScript executes a script from the underlying fs set using SetScriptFS.
 // scripts are run as template so it is possible to pass data onto the scripts
-func RunScript(conn Interface, script string, tdata any) error {
+func RunScript(conn DB, script string, tdata any) error {
 	var fpath = script
 	var t *template.Template
 	var err error
@@ -272,8 +217,8 @@ func RunScript(conn Interface, script string, tdata any) error {
 	return Exec(conn, b.String())
 }
 
-// CollectStrings scans each row for a string value
-func CollectStrings(rows Rows) ([]string, error) {
+// CollectStrings scans rows for string values
+func CollectStrings(rows pgx.Rows) ([]string, error) {
 	defer rows.Close()
 	var strs []string
 	for rows.Next() {
@@ -294,7 +239,7 @@ func CollectStrings(rows Rows) ([]string, error) {
 }
 
 // CollectIDs scans each row for id value
-func CollectIDs(rows Rows) ([]ID, error) {
+func CollectIDs(rows pgx.Rows) ([]ID, error) {
 	defer rows.Close()
 	var ids []ID
 	for rows.Next() {
@@ -313,11 +258,12 @@ func CollectIDs(rows Rows) ([]ID, error) {
 	return ids, nil
 }
 
-func CollectRows[T any](rows Rows) (items []T, err error) {
+// CollectRows scans a T from each row
+func CollectRows[T any](rows pgx.Rows) (items []T, err error) {
 	defer rows.Close()
 	for rows.Next() {
 		var t T
-		if err := Scan(rows, &t); err != nil {
+		if err := scan(rows, &t); err != nil {
 			return nil, err
 		}
 		items = append(items, t)
@@ -330,7 +276,7 @@ func CollectRows[T any](rows Rows) (items []T, err error) {
 	return
 }
 
-func Scan(s scanner, v any) error {
+func scan(s scanner, v any) error {
 	vals, err := ScanableValues(v)
 	if err != nil {
 		return err
