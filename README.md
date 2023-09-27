@@ -23,7 +23,87 @@ https://pkg.go.dev/github.com/cristosal/pgxx
 
 ## Usage
 
-Here is a simple example of insert, update, and find one.  **Error checking has been omitted for brevity**
+Define the struct which will map to your postgres table.
+- If tags are omited, the fields are mapped to columns matching their snake_cased values.
+- If TableName() method is not implemented then the snake_cased struct name is used.
+
+```go
+type User struct {
+    ID          pgxx.ID `db:"id"`
+    Username    string  `db:"username"`
+    Password    string  `db:"password"`
+    Confirmed   bool    `db:"confirmed_at"`
+}
+
+func (*User) TableName() string {
+    return "users"
+}
+```
+
+### Insert
+Inserts a row into table. Insert ID is automatically assigned to struct.
+
+```go
+u := User{
+    Username: "admin",
+    Password: "changeme",
+}
+
+err := pgxx.Insert(db, &u)
+```
+
+
+### One
+Collect one row. Takes `sql` argument which is placed after the select statement.
+
+```go
+var u User
+
+err := pgxx.One(db, &u, "WHERE id = $1", 1)
+```
+This executes the following sql query:
+
+```sql
+SELECT id, username, password FROM users WHERE id = $1
+```
+
+### First
+
+Same as `pgxx.One` but without an `sql` argument. Returns first row found from table.
+
+```go
+var u User
+
+err := pgxx.First(db, &u)
+```
+
+
+### Update
+
+Updates an entity by it's `id` field. The following will change the username from admin to superuser.
+
+```go
+var u User
+
+err := pgxx.One(db, &u, "WHERE username = $1", "admin")
+
+u.Username = "superuser"
+
+err = pgxx.Update(db, &u)
+```
+
+### Many
+Returns all rows which satisfy the query. Takes an `sql` argument which is placed after `select`.
+
+```go
+var users []User
+
+err := pgxx.Many(db, &users, "WHERE confirmed = TRUE")
+```
+
+### Full Example
+Here is a simple example of insert, update, and find one.  
+**Please Note: Error checking has been omitted for brevity**
 
 ```go
 package main
