@@ -1,4 +1,5 @@
 # pgxx
+[![Go Reference](https://pkg.go.dev/badge/github.com/cristosal/pgxx.svg)](https://pkg.go.dev/github.com/cristosal/pgxx)
 
 A library that faciliatates sql queries and struct mappings with pgx
 
