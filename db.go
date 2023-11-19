@@ -66,6 +66,36 @@ func Exec(db DB, sql string, args ...any) error {
 	return err
 }
 
+// Query executes a given sql statement and scans the results into v
+func Query[T any](db DB, v *[]T, sql string, args ...any) error {
+	var t T
+	schema, err := Analyze(&t)
+	if err != nil {
+		return err
+	}
+
+	var cols = schema.Fields.Columns().List()
+	rows, err := db.Query(sql, args...)
+
+	if err != nil {
+		return err
+	}
+
+	defer rows.Close()
+
+	for rows.Next() {
+		var row T
+
+		if err := scan(rows, &row); err != nil {
+			return err
+		}
+
+		*v = append(*v, row)
+	}
+
+	return nil
+}
+
 // Many returns all rows encountered that satisfy the sql condition.
 // The sql string is placed immediately after the select statement
 func Many[T any](db DB, v *[]T, sql string, args ...any) error {
@@ -99,6 +129,17 @@ func Many[T any](db DB, v *[]T, sql string, args ...any) error {
 	}
 
 	return nil
+}
+
+// QueryRow executes a given sql query and scans the result into v
+func QueryRow(db DB, v any, sql string, args ...any) error {
+	sch, err := Analyze(v)
+	if err != nil {
+		return err
+	}
+
+	row := db.QueryRow(q, args...)
+	return scan(row, v)
 }
 
 // One returns the first row encountered that satisfies the sql condition.
