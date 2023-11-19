@@ -1,4 +1,4 @@
-module github.com/cristosal/pgxx
+module github.com/cristosal/dbx
 
 go 1.20
 

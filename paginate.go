@@ -1,10 +1,8 @@
-package pgxx
+package dbx
 
 import (
 	"fmt"
 	"strings"
-
-	"github.com/jackc/pgx/v5"
 )
 
 type (
@@ -66,12 +64,12 @@ func Paginate[T any](db DB, opts *PaginationOptions) (*PaginationResults[T], err
 
 	// count
 	countq := fmt.Sprintf("select count(*) from %s %s", opts.Record.TableName(), sql)
-	var row pgx.Row
+	var row Row
 
 	if opts.queryable() {
-		row = db.QueryRow(ctx, countq, opts.sqlQueryParam())
+		row = db.QueryRow(countq, opts.sqlQueryParam())
 	} else {
-		row = db.QueryRow(ctx, countq)
+		row = db.QueryRow(countq)
 	}
 	var count int64
 	if err := row.Scan(&count); err != nil {

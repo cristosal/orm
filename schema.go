@@ -1,5 +1,4 @@
-// Package pgxx contains helper functions for pgx
-package pgxx
+package dbx
 
 import (
 	"errors"
