@@ -194,6 +194,17 @@ func MustAnalyze(v interface{}) *Schema {
 	return sch
 }
 
+// FindByColumn returns the field which has the given column name
+func (fields Fields) FindByColumn(col string) (*Field, error) {
+	for i := range fields {
+		if fields[i].Column == col {
+			return &fields[i], nil
+		}
+	}
+
+	return nil, errors.New("field not found")
+}
+
 // Identity returns the first identity field found
 func (fields Fields) Identity() (*Field, []int, error) {
 	var index []int

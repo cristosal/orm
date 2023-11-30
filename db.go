@@ -69,12 +69,11 @@ func Exec(db DB, sql string, args ...any) error {
 // Query executes a given sql statement and scans the results into v
 func Query[T any](db DB, v *[]T, sql string, args ...any) error {
 	var t T
-	schema, err := Analyze(&t)
+	_, err := Analyze(&t)
 	if err != nil {
 		return err
 	}
 
-	var cols = schema.Fields.Columns().List()
 	rows, err := db.Query(sql, args...)
 
 	if err != nil {
@@ -133,12 +132,12 @@ func Many[T any](db DB, v *[]T, sql string, args ...any) error {
 
 // QueryRow executes a given sql query and scans the result into v
 func QueryRow(db DB, v any, sql string, args ...any) error {
-	sch, err := Analyze(v)
+	_, err := Analyze(v)
 	if err != nil {
 		return err
 	}
 
-	row := db.QueryRow(q, args...)
+	row := db.QueryRow(sql, args...)
 	return scan(row, v)
 }
 
@@ -205,6 +204,34 @@ func Update(db DB, v any) error {
 	}
 
 	idField, indexes, err := sch.Fields.Identity()
+	if err != nil {
+		return err
+	}
+
+	cols := sch.Fields.Writeable().Columns()
+	placeholders := cols.AssignmentList(1)
+	sql := fmt.Sprintf("update %s set %s", sch.Table, placeholders)
+	values, err := writeableValues(v)
+	if err != nil {
+		return err
+	}
+
+	sv := reflect.ValueOf(v).Elem()
+	f := sv.FieldByIndex(indexes)
+	id := f.Int()
+	sql += fmt.Sprintf(" where %s = $%d", idField.Column, len(cols)+1)
+	values = append(values, id)
+	return Exec(db, sql, values...)
+}
+
+// UpdateBy updates v by the column specified
+func UpdateBy(db DB, v any, col string) error {
+	sch, err := Analyze(v)
+	if err != nil {
+		return err
+	}
+
+	f, err := sch.Fields.FindByColumn(col)
 	if err != nil {
 		return err
 	}
