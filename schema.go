@@ -194,38 +194,44 @@ func MustAnalyze(v interface{}) *Schema {
 	return sch
 }
 
-// FindByColumn returns the field which has the given column name
-func (fields Fields) FindByColumn(col string) (*Field, error) {
-	for i := range fields {
-		if fields[i].Column == col {
-			return &fields[i], nil
-		}
-	}
-
-	return nil, errors.New("field not found")
-}
-
-// Identity returns the first identity field found
-func (fields Fields) Identity() (*Field, []int, error) {
+// Find recursively searches for the field that matches the predicate and returns the field along with the index path
+func (fields Fields) Find(predicate func(*Field) bool) (*Field, []int, error) {
 	var index []int
 
 	for _, field := range fields {
-		if field.Identity {
+		if predicate(&field) {
 			index = append(index, field.Index)
 			return &field, index, nil
 		}
 
-		// returns the first field with the identity
+		// recursively look through embeded schemas
 		if field.HasSchema() {
-			f, indexes, _ := field.Schema.Fields.Identity()
-			if f != nil {
-				index = append(index, field.Index)
-				index = append(index, indexes...)
-				return f, index, nil
+			index = append(index, field.Index)
+			f, indexes, err := field.Schema.Fields.Find(predicate)
+			if err != nil {
+				break
 			}
+
+			index = append(index, indexes...)
+			return f, index, nil
 		}
 	}
-	return nil, index, ErrNoIdentity
+
+	return nil, nil, errors.New("field not found")
+}
+
+// FindByColumn returns the field and index which has the given column name
+func (fields Fields) FindByColumn(col string) (*Field, []int, error) {
+	return fields.Find(func(f *Field) bool {
+		return f.Column == col
+	})
+}
+
+// FindIdentity returns the first identity field found
+func (fields Fields) FindIdentity() (*Field, []int, error) {
+	return fields.Find(func(f *Field) bool {
+		return f.Identity
+	})
 }
 
 // ForeignKeys are fields representing foreign keys
@@ -239,8 +245,7 @@ func (fields Fields) ForeignKeys() Fields {
 	return info
 }
 
-// Writeable returns all writeable fields
-// A field is writeable if it is not marked as readonly or is an identity field
+// Writeable returns all fields excluding identity and readonly
 func (fields Fields) Writeable() Fields {
 	var ret Fields
 
@@ -261,8 +266,7 @@ func (fields Fields) Writeable() Fields {
 	return ret
 }
 
-// Columns returns all database columns for the given fields
-// it goes recursively through fields
+// Columns recursively maps through fields and returns their column names
 func (fields Fields) Columns() (columns Columns) {
 	for _, f := range fields {
 		if f.HasSchema() {
@@ -275,8 +279,8 @@ func (fields Fields) Columns() (columns Columns) {
 	return
 }
 
-// scanableValues returns all scannable values from a given struct.
-func scanableValues(v interface{}) (values []any, err error) {
+// getScanableValues returns all scannable values from a given struct.
+func getScanableValues(v interface{}) (values []any, err error) {
 	sch, err := Analyze(v)
 	if err != nil {
 		return nil, err
@@ -291,7 +295,7 @@ func scanableValues(v interface{}) (values []any, err error) {
 		v := sv.Field(f.Index)
 
 		if f.HasSchema() {
-			recursive, err := scanableValues(v.Addr().Interface())
+			recursive, err := getScanableValues(v.Addr().Interface())
 			if err != nil {
 				return nil, err
 			}
@@ -306,8 +310,8 @@ func scanableValues(v interface{}) (values []any, err error) {
 	return values, nil
 }
 
-// writeableValues returns the value from struct fields not marked as readonly
-func writeableValues(v interface{}) (values []any, err error) {
+// getWriteableValues returns the value from struct fields not marked as readonly
+func getWriteableValues(v interface{}) (values []any, err error) {
 	sch, err := Analyze(v)
 	if err != nil {
 		return nil, err
@@ -327,7 +331,7 @@ func writeableValues(v interface{}) (values []any, err error) {
 
 		// recursively analyze the schema
 		if field.HasSchema() {
-			vals, _ := writeableValues(v.Interface())
+			vals, _ := getWriteableValues(v.Interface())
 			values = append(values, vals...)
 			continue
 		}
