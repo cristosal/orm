@@ -2,75 +2,121 @@ package dbx_test
 
 import (
 	"database/sql"
+	"errors"
 	"testing"
 
 	"github.com/cristosal/dbx"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func TestOne(t *testing.T) {
-	type TempTable struct{ V string }
-	db := getDB(t)
+type mockResult struct{}
 
-	tx, err := db.Begin()
-	if err != nil {
-		t.Fatal(err)
+func (mockResult) LastInsertId() (int64, error) {
+	return 1, nil
+}
+
+func (mockResult) RowsAffected() (int64, error) {
+	return 1, nil
+}
+
+type mockDB struct {
+	SQL    string
+	Values []any
+}
+
+func (db *mockDB) ExpectSQL(t *testing.T, sql string) {
+	if sql != db.SQL {
+		t.Fatalf("expected:\n%s\n\ngot:\n%s", sql, db.SQL)
 	}
+}
 
-	defer tx.Rollback()
-
-	if err := dbx.Exec(db, "create temporary table temp_table(v varchar(255) primary key)"); err != nil {
-		t.Fatal(err)
+func (db *mockDB) ExpectValueAt(t *testing.T, index int, value interface{}) {
+	if db.Values[index] != value {
+		t.Fatalf("expected value at index %d to be %v\ngot %v", index, db.Values[index], value)
 	}
+}
 
-	if err := dbx.Exec(db, "insert into temp_table (v) values ($1)", "foo"); err != nil {
-		t.Fatal(err)
-	}
+func (db *mockDB) Exec(s string, args ...any) (sql.Result, error) {
+	db.SQL = s
+	db.Values = args
+	return mockResult{}, nil
+}
 
-	var foo TempTable
-	if err := dbx.One(db, &foo, ""); err != nil {
-		t.Fatal(err)
-	}
+func (db *mockDB) Query(s string, args ...any) (*sql.Rows, error) {
+	db.SQL = s
+	db.Values = args
+	return nil, errors.New("test implementation")
+}
 
-	if foo.V != "foo" {
-		t.Fatalf("expected foo got = %s", foo.V)
-	}
+func (db *mockDB) QueryRow(s string, args ...any) *sql.Row {
+	db.SQL = s
+	db.Values = args
+	return nil
 
 }
 
-func TestTx(t *testing.T) {
-	db := getDB(t)
+func TestUpdateByColumn(t *testing.T) {
+	db := mockDB{}
+	type A struct {
+		ID       int64
+		Username string
+		Password string
+	}
+	var a A
+	dbx.UpdateByColumn(&db, &a, "username")
+	db.ExpectSQL(t, "UPDATE a SET username = $1, password = $2 WHERE username = $3")
+}
 
-	tx, err := db.Begin()
+func TestFieldsFindByColumn(t *testing.T) {
+	type A struct {
+		ID       int64
+		Username string
+		Password string
+	}
+
+	type B struct {
+		A
+		Role string
+	}
+
+	var b B
+	schema := dbx.MustAnalyze(&b)
+	_, indexes, err := schema.Fields.FindByColumn("username")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	defer tx.Rollback()
+	// this is the tt
+	expected := []int{0, 1}
 
-	err = dbx.Exec(tx, "create temporary table tmp(v varchar(255) primary key)")
-	if err != nil {
-		t.Fatal(err)
+	for i := range expected {
+		if indexes[i] != expected[i] {
+			t.Fatalf("expected index %d to be %d, got %d", i, expected[i], indexes[i])
+		}
 	}
+}
+
+func TestOneNoSQL(t *testing.T) {
+	type TempTable struct{ V string }
+	db := &mockDB{}
+	var foo TempTable
+	dbx.One(db, &foo, "")
+	db.ExpectSQL(t, "SELECT v FROM temp_table")
+}
+
+func TestOneSQL(t *testing.T) {
+	type TempTable struct{ V string }
+	db := &mockDB{}
+	var foo TempTable
+	dbx.One(db, &foo, "WHERE v = $1", 1)
+	db.ExpectSQL(t, "SELECT v FROM temp_table WHERE v = $1")
+	db.ExpectValueAt(t, 0, 1)
 }
 
 func TestExec(t *testing.T) {
-	db := getDB(t)
-
-	t.Cleanup(func() {
-		dbx.Exec(db, "drop table test_table")
-	})
-
-	if err := dbx.Exec(db, "create table test_table (id serial primary key)"); err != nil {
-		t.Fatal(err)
-	}
-}
-
-func getDB(t *testing.T) *sql.DB {
-	db, err := sql.Open("pgx", "")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	return db
+	db := &mockDB{}
+	sql := "create table test_table (id serial primary key)"
+	// orm.Exec(db, sql)
+	dbx.Exec(db, sql)
+	db.ExpectSQL(t, sql)
 }
