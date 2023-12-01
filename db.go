@@ -2,7 +2,6 @@ package dbx
 
 import (
 	"bytes"
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,7 +12,6 @@ import (
 )
 
 var (
-	ctx                  = context.Background()
 	ErrNoForeignKeys     = errors.New("no foreign keys were found")
 	ErrNoForeignKeyMatch = errors.New("no foreign key matched")
 	ErrNotFound          = fmt.Errorf("not found: %w", sql.ErrNoRows)
@@ -85,7 +83,7 @@ func Query[T any](db DB, v *[]T, sql string, args ...any) error {
 	for rows.Next() {
 		var row T
 
-		if err := scan(rows, &row); err != nil {
+		if err := scanRow(rows, &row); err != nil {
 			return err
 		}
 
@@ -106,7 +104,7 @@ func Many[T any](db DB, v *[]T, sql string, args ...any) error {
 
 	var (
 		cols = schema.Fields.Columns().List()
-		sql2 = fmt.Sprintf("select %s from %s %s", cols, schema.Table, sql)
+		sql2 = fmt.Sprintf("SELECT %s FROM %s %s", cols, schema.Table, sql)
 	)
 
 	rows, err := db.Query(strings.Trim(sql2, " "), args...)
@@ -115,12 +113,10 @@ func Many[T any](db DB, v *[]T, sql string, args ...any) error {
 	}
 
 	defer rows.Close()
-
 	for rows.Next() {
 		// generics are need for instantiation here
 		var row T
-
-		if err := scan(rows, &row); err != nil {
+		if err := scanRow(rows, &row); err != nil {
 			return err
 		}
 
@@ -138,7 +134,7 @@ func QueryRow(db DB, v any, sql string, args ...any) error {
 	}
 
 	row := db.QueryRow(sql, args...)
-	return scan(row, v)
+	return scanRow(row, v)
 }
 
 // One returns the first row encountered that satisfies the sql condition.
@@ -150,9 +146,20 @@ func One(db DB, v any, sql string, args ...any) error {
 	}
 
 	cols := sch.Fields.Columns().List()
-	q := fmt.Sprintf("select %s from %s %s", cols, sch.Table, sql)
+
+	q := fmt.Sprintf("SELECT %s FROM %s", cols, sch.Table)
+
+	// append sql argument if not empty
+	if sql != "" {
+		q = fmt.Sprintf("%s %s", q, sql)
+	}
+
 	row := db.QueryRow(q, args...)
-	return scan(row, v)
+	if row == nil {
+		return ErrNotFound
+	}
+
+	return scanRow(row, v)
 }
 
 // First returns the first row encountered for a given table.
@@ -167,7 +174,7 @@ func All[T any](db DB, v *[]T) error {
 	return Many(db, v, "")
 }
 
-// Insert inserts v into it's designated table. ID is set on v if available
+// Insert inserts v into designated table. ID is set on v if available
 func Insert(db DB, v any) error {
 	sch, err := Analyze(v)
 	if err != nil {
@@ -176,34 +183,39 @@ func Insert(db DB, v any) error {
 
 	var cols = sch.Fields.Writeable().Columns()
 	sql := fmt.Sprintf("insert into %s (%s) values (%s)", sch.Table, cols.List(), cols.ValueList(1))
-	vals, err := writeableValues(v)
+	vals, err := getWriteableValues(v)
 	if err != nil {
 		return err
 	}
 
-	id, index, err := sch.Fields.Identity()
-	if errors.Is(err, ErrNoIdentity) {
+	id, index, err := sch.Fields.FindIdentity()
+	if errors.Is(err, ErrNotFound) {
 		return Exec(db, sql, vals...)
 	}
 
+	// other possible error
 	if err != nil {
 		return err
 	}
 
 	sql = fmt.Sprintf("%s returning %s", sql, id.Column)
 	row := db.QueryRow(sql, vals...)
-	addr := reflect.ValueOf(v).Elem().FieldByIndex(index).Addr().Interface()
+	addr := getAddrAtIndex(v, index)
 	return row.Scan(addr)
 }
 
-// Update updates v by its identity (ID field). If no id is found, Update return ErrNoIdentity
-func Update(db DB, v any) error {
+func Update(db DB, v any, sql string, args ...any) error {
+	return errors.New("unimplemented")
+}
+
+// UpdateByID sets values by the identity. If no id is found, UpdateByID return ErrNoIdentity
+func UpdateByID(db DB, v any) error {
 	sch, err := Analyze(v)
 	if err != nil {
 		return err
 	}
 
-	idField, indexes, err := sch.Fields.Identity()
+	idField, indexes, err := sch.Fields.FindIdentity()
 	if err != nil {
 		return err
 	}
@@ -211,7 +223,7 @@ func Update(db DB, v any) error {
 	cols := sch.Fields.Writeable().Columns()
 	placeholders := cols.AssignmentList(1)
 	sql := fmt.Sprintf("update %s set %s", sch.Table, placeholders)
-	values, err := writeableValues(v)
+	values, err := getWriteableValues(v)
 	if err != nil {
 		return err
 	}
@@ -224,31 +236,32 @@ func Update(db DB, v any) error {
 	return Exec(db, sql, values...)
 }
 
-// UpdateBy updates v by the column specified
-func UpdateBy(db DB, v any, col string) error {
-	sch, err := Analyze(v)
+// UpdateByColumn sets values from v where the column matches v column
+func UpdateByColumn(db DB, v any, column string) error {
+	schema, err := Analyze(v)
 	if err != nil {
 		return err
 	}
 
-	f, err := sch.Fields.FindByColumn(col)
+	var (
+		assignments = schema.Fields.Writeable().Columns().AssignmentList(1)
+		sql         = fmt.Sprintf("UPDATE %s SET %s", schema.Table, assignments)
+	)
+
+	values, err := getWriteableValues(v)
 	if err != nil {
 		return err
 	}
 
-	cols := sch.Fields.Writeable().Columns()
-	placeholders := cols.AssignmentList(1)
-	sql := fmt.Sprintf("update %s set %s", sch.Table, placeholders)
-	values, err := writeableValues(v)
+	sql += fmt.Sprintf(" WHERE %s = $%d", column, len(values)+1)
+
+	_, index, err := schema.Fields.FindByColumn(column)
 	if err != nil {
 		return err
 	}
 
-	sv := reflect.ValueOf(v).Elem()
-	f := sv.FieldByIndex(indexes)
-	id := f.Int()
-	sql += fmt.Sprintf(" where %s = $%d", idField.Column, len(cols)+1)
-	values = append(values, id)
+	columnValue := getValueAtIndex(v, index)
+	values = append(values, columnValue)
 	return Exec(db, sql, values...)
 }
 
@@ -270,7 +283,6 @@ func CollectStrings(rows Rows) ([]string, error) {
 	}
 
 	return strs, nil
-
 }
 
 // CollectIDs scans each row for id value
@@ -298,7 +310,7 @@ func CollectRows[T any](rows Rows) (items []T, err error) {
 	defer rows.Close()
 	for rows.Next() {
 		var t T
-		if err := scan(rows, &t); err != nil {
+		if err := scanRow(rows, &t); err != nil {
 			return nil, err
 		}
 		items = append(items, t)
@@ -311,8 +323,18 @@ func CollectRows[T any](rows Rows) (items []T, err error) {
 	return
 }
 
-func scan(row Row, v any) error {
-	vals, err := scanableValues(v)
+// gets the address of the struct value at a given index
+func getAddrAtIndex(v any, index []int) interface{} {
+	return reflect.ValueOf(v).Elem().FieldByIndex(index).Addr().Interface()
+}
+
+// gets the concrete value at given index
+func getValueAtIndex(v any, index []int) interface{} {
+	return reflect.ValueOf(v).Elem().FieldByIndex(index).Interface()
+}
+
+func scanRow(row Row, v any) error {
+	vals, err := getScanableValues(v)
 	if err != nil {
 		return err
 	}
