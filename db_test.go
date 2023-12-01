@@ -55,6 +55,25 @@ func (db *mockDB) QueryRow(s string, args ...any) *sql.Row {
 
 }
 
+func TestUpdate(t *testing.T) {
+	db := mockDB{}
+	type A struct {
+		ID       int64
+		Username string
+		Password string
+	}
+	var a A
+
+	a.Username = "foo"
+	a.Password = "bar"
+
+	dbx.Update(&db, &a, "WHERE username = $1", a.Username)
+	db.ExpectSQL(t, "UPDATE a SET username = $2, password = $3 WHERE username = $1")
+	db.ExpectValueAt(t, 0, a.Username)
+	db.ExpectValueAt(t, 1, a.Username)
+	db.ExpectValueAt(t, 2, a.Password)
+}
+
 func TestUpdateByColumn(t *testing.T) {
 	db := mockDB{}
 	type A struct {

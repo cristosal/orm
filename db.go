@@ -93,8 +93,7 @@ func Query[T any](db DB, v *[]T, sql string, args ...any) error {
 	return nil
 }
 
-// Many returns all rows encountered that satisfy the sql condition.
-// The sql string is placed immediately after the select statement
+// Many is a select over columns defined in v
 func Many[T any](db DB, v *[]T, sql string, args ...any) error {
 	var t T
 	schema, err := Analyze(&t)
@@ -205,7 +204,25 @@ func Insert(db DB, v any) error {
 }
 
 func Update(db DB, v any, sql string, args ...any) error {
-	return errors.New("unimplemented")
+	start := len(args) + 1
+	sch, err := Analyze(v)
+	if err != nil {
+		return err
+	}
+
+	assignments := sch.Fields.Writeable().Columns().AssignmentList(start)
+	s := fmt.Sprintf("UPDATE %s SET %s", sch.Table, assignments)
+	if sql != "" {
+		s = fmt.Sprintf("%s %s", s, sql)
+	}
+
+	values, err := getWriteableValues(v)
+	if err != nil {
+		return err
+	}
+
+	args = append(args, values...)
+	return Exec(db, s, args...)
 }
 
 // UpdateByID sets values by the identity. If no id is found, UpdateByID return ErrNoIdentity
