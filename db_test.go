@@ -1,11 +1,12 @@
-package dbx_test
+package orm_test
 
 import (
 	"database/sql"
 	"errors"
 	"testing"
 
-	"github.com/cristosal/dbx"
+	"github.com/cristosal/orm"
+	"github.com/cristosal/orm/schema"
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
@@ -66,8 +67,7 @@ func TestUpdate(t *testing.T) {
 
 	a.Username = "foo"
 	a.Password = "bar"
-
-	dbx.Update(&db, &a, "WHERE username = $1", a.Username)
+	orm.Update(&db, &a, "WHERE username = $1", a.Username)
 	db.ExpectSQL(t, "UPDATE a SET username = $2, password = $3 WHERE username = $1")
 	db.ExpectValueAt(t, 0, a.Username)
 	db.ExpectValueAt(t, 1, a.Username)
@@ -82,7 +82,7 @@ func TestUpdateByColumn(t *testing.T) {
 		Password string
 	}
 	var a A
-	dbx.UpdateByColumn(&db, &a, "username")
+	orm.UpdateByColumn(&db, &a, "username")
 	db.ExpectSQL(t, "UPDATE a SET username = $1, password = $2 WHERE username = $3")
 }
 
@@ -99,7 +99,7 @@ func TestFieldsFindByColumn(t *testing.T) {
 	}
 
 	var b B
-	schema := dbx.MustAnalyze(&b)
+	schema := schema.MustGet(&b)
 	_, indexes, err := schema.Fields.FindByColumn("username")
 	if err != nil {
 		t.Fatal(err)
@@ -119,7 +119,7 @@ func TestOneNoSQL(t *testing.T) {
 	type TempTable struct{ V string }
 	db := &mockDB{}
 	var foo TempTable
-	dbx.One(db, &foo, "")
+	orm.One(db, &foo, "")
 	db.ExpectSQL(t, "SELECT v FROM temp_table")
 }
 
@@ -127,7 +127,7 @@ func TestOneSQL(t *testing.T) {
 	type TempTable struct{ V string }
 	db := &mockDB{}
 	var foo TempTable
-	dbx.One(db, &foo, "WHERE v = $1", 1)
+	orm.One(db, &foo, "WHERE v = $1", 1)
 	db.ExpectSQL(t, "SELECT v FROM temp_table WHERE v = $1")
 	db.ExpectValueAt(t, 0, 1)
 }
@@ -136,6 +136,6 @@ func TestExec(t *testing.T) {
 	db := &mockDB{}
 	sql := "create table test_table (id serial primary key)"
 	// orm.Exec(db, sql)
-	dbx.Exec(db, sql)
+	orm.Exec(db, sql)
 	db.ExpectSQL(t, sql)
 }

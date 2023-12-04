@@ -1,4 +1,4 @@
-module github.com/cristosal/dbx
+module github.com/cristosal/orm
 
 go 1.20
 

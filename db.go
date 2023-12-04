@@ -1,20 +1,14 @@
-package dbx
+package orm
 
 import (
-	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
 	"strings"
-	"unicode"
-)
 
-var (
-	ErrNoForeignKeys     = errors.New("no foreign keys were found")
-	ErrNoForeignKeyMatch = errors.New("no foreign key matched")
-	ErrNotFound          = fmt.Errorf("not found: %w", sql.ErrNoRows)
+	"github.com/cristosal/orm/schema"
 )
 
 type (
@@ -36,26 +30,22 @@ type (
 	}
 )
 
-type Record interface {
-	TableName() string
-}
-
-// ID represents a SERIAL id
-type ID int64
+// SerialID represents a SERIAL id
+type SerialID int64
 
 // String is the string representation of a serial id
-func (id ID) String() string {
+func (id SerialID) String() string {
 	return strconv.FormatInt(int64(id), 10)
 }
 
-// ParseID attempts to parse a string into ID type
-func ParseID(s string) (ID, error) {
+// ParseSerialID attempts to parse a string into ID type
+func ParseSerialID(s string) (SerialID, error) {
 	id, err := strconv.ParseInt(s, 10, 64)
 	if err != nil {
 		return 0, err
 	}
 
-	return ID(id), nil
+	return SerialID(id), nil
 }
 
 // Exec executes a given sql statement and returns any error encountered
@@ -67,7 +57,7 @@ func Exec(db DB, sql string, args ...any) error {
 // Query executes a given sql statement and scans the results into v
 func Query[T any](db DB, v *[]T, sql string, args ...any) error {
 	var t T
-	_, err := Analyze(&t)
+	_, err := schema.Get(&t)
 	if err != nil {
 		return err
 	}
@@ -96,7 +86,7 @@ func Query[T any](db DB, v *[]T, sql string, args ...any) error {
 // Many is a select over columns defined in v
 func Many[T any](db DB, v *[]T, sql string, args ...any) error {
 	var t T
-	schema, err := Analyze(&t)
+	schema, err := schema.Get(&t)
 	if err != nil {
 		return err
 	}
@@ -127,7 +117,7 @@ func Many[T any](db DB, v *[]T, sql string, args ...any) error {
 
 // QueryRow executes a given sql query and scans the result into v
 func QueryRow(db DB, v any, sql string, args ...any) error {
-	_, err := Analyze(v)
+	_, err := schema.Get(v)
 	if err != nil {
 		return err
 	}
@@ -138,8 +128,8 @@ func QueryRow(db DB, v any, sql string, args ...any) error {
 
 // One returns the first row encountered that satisfies the sql condition.
 // The sql string is placed immediately after the select statement
-func One(db DB, v any, sql string, args ...any) error {
-	sch, err := Analyze(v)
+func One(db DB, v any, s string, args ...any) error {
+	sch, err := schema.Get(v)
 	if err != nil {
 		return err
 	}
@@ -149,22 +139,20 @@ func One(db DB, v any, sql string, args ...any) error {
 	q := fmt.Sprintf("SELECT %s FROM %s", cols, sch.Table)
 
 	// append sql argument if not empty
-	if sql != "" {
-		q = fmt.Sprintf("%s %s", q, sql)
+	if s != "" {
+		q = fmt.Sprintf("%s %s", q, s)
 	}
 
 	row := db.QueryRow(q, args...)
 	if row == nil {
-		return ErrNotFound
+		return sql.ErrNoRows
+	}
+
+	if row.Err() != nil {
+		return row.Err()
 	}
 
 	return scanRow(row, v)
-}
-
-// First returns the first row encountered for a given table.
-// It is equivalent to One with an empty sql string
-func First(db DB, v any) error {
-	return One(db, v, "")
 }
 
 // All is the same as Many with an empty sql string.
@@ -175,20 +163,20 @@ func All[T any](db DB, v *[]T) error {
 
 // Insert inserts v into designated table. ID is set on v if available
 func Insert(db DB, v any) error {
-	sch, err := Analyze(v)
+	sch, err := schema.Get(v)
 	if err != nil {
 		return err
 	}
 
 	var cols = sch.Fields.Writeable().Columns()
 	sql := fmt.Sprintf("insert into %s (%s) values (%s)", sch.Table, cols.List(), cols.ValueList(1))
-	vals, err := getWriteableValues(v)
+	vals, err := schema.GetWriteableValues(v)
 	if err != nil {
 		return err
 	}
 
-	id, index, err := sch.Fields.FindIdentity()
-	if errors.Is(err, ErrNotFound) {
+	id, index, err := sch.Fields.FindPK()
+	if errors.Is(err, schema.ErrFieldNotFound) {
 		return Exec(db, sql, vals...)
 	}
 
@@ -205,7 +193,7 @@ func Insert(db DB, v any) error {
 
 func Update(db DB, v any, sql string, args ...any) error {
 	start := len(args) + 1
-	sch, err := Analyze(v)
+	sch, err := schema.Get(v)
 	if err != nil {
 		return err
 	}
@@ -216,7 +204,7 @@ func Update(db DB, v any, sql string, args ...any) error {
 		s = fmt.Sprintf("%s %s", s, sql)
 	}
 
-	values, err := getWriteableValues(v)
+	values, err := schema.GetWriteableValues(v)
 	if err != nil {
 		return err
 	}
@@ -227,12 +215,12 @@ func Update(db DB, v any, sql string, args ...any) error {
 
 // UpdateByID sets values by the identity. If no id is found, UpdateByID return ErrNoIdentity
 func UpdateByID(db DB, v any) error {
-	sch, err := Analyze(v)
+	sch, err := schema.Get(v)
 	if err != nil {
 		return err
 	}
 
-	idField, indexes, err := sch.Fields.FindIdentity()
+	idField, indexes, err := sch.Fields.FindPK()
 	if err != nil {
 		return err
 	}
@@ -240,7 +228,7 @@ func UpdateByID(db DB, v any) error {
 	cols := sch.Fields.Writeable().Columns()
 	placeholders := cols.AssignmentList(1)
 	sql := fmt.Sprintf("update %s set %s", sch.Table, placeholders)
-	values, err := getWriteableValues(v)
+	values, err := schema.GetWriteableValues(v)
 	if err != nil {
 		return err
 	}
@@ -255,24 +243,24 @@ func UpdateByID(db DB, v any) error {
 
 // UpdateByColumn sets values from v where the column matches v column
 func UpdateByColumn(db DB, v any, column string) error {
-	schema, err := Analyze(v)
+	s, err := schema.Get(v)
 	if err != nil {
 		return err
 	}
 
 	var (
-		assignments = schema.Fields.Writeable().Columns().AssignmentList(1)
-		sql         = fmt.Sprintf("UPDATE %s SET %s", schema.Table, assignments)
+		assignments = s.Fields.Writeable().Columns().AssignmentList(1)
+		sql         = fmt.Sprintf("UPDATE %s SET %s", s.Table, assignments)
 	)
 
-	values, err := getWriteableValues(v)
+	values, err := schema.GetWriteableValues(v)
 	if err != nil {
 		return err
 	}
 
 	sql += fmt.Sprintf(" WHERE %s = $%d", column, len(values)+1)
 
-	_, index, err := schema.Fields.FindByColumn(column)
+	_, index, err := s.Fields.FindByColumn(column)
 	if err != nil {
 		return err
 	}
@@ -296,18 +284,18 @@ func CollectStrings(rows Rows) ([]string, error) {
 	}
 
 	if strs == nil {
-		return nil, ErrNotFound
+		return nil, sql.ErrNoRows
 	}
 
 	return strs, nil
 }
 
 // CollectIDs scans each row for id value
-func CollectIDs(rows Rows) ([]ID, error) {
+func CollectIDs(rows Rows) ([]SerialID, error) {
 	defer rows.Close()
-	var ids []ID
+	var ids []SerialID
 	for rows.Next() {
-		var id ID
+		var id SerialID
 		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
@@ -316,7 +304,7 @@ func CollectIDs(rows Rows) ([]ID, error) {
 	}
 
 	if ids == nil {
-		return nil, ErrNotFound
+		return nil, sql.ErrNoRows
 	}
 
 	return ids, nil
@@ -334,7 +322,7 @@ func CollectRows[T any](rows Rows) (items []T, err error) {
 	}
 
 	if len(items) == 0 {
-		return nil, ErrNotFound
+		return nil, sql.ErrNoRows
 	}
 
 	return
@@ -351,45 +339,10 @@ func getValueAtIndex(v any, index []int) interface{} {
 }
 
 func scanRow(row Row, v any) error {
-	vals, err := getScanableValues(v)
+	vals, err := schema.GetScanableValues(v)
 	if err != nil {
 		return err
 	}
 
 	return row.Scan(vals...)
-}
-
-func snakecase(input string) string {
-	var (
-		buf       bytes.Buffer
-		prevUpper = false
-		nextLower = false
-	)
-
-	for i, c := range input {
-		// need to check if next character is lower case
-		if i == len(input)-1 {
-			nextLower = false
-		} else {
-			nextLower = unicode.IsLower(rune(input[i+1]))
-		}
-
-		if unicode.IsUpper(c) {
-			if i > 0 && !prevUpper {
-				buf.WriteRune('_')
-			}
-
-			if nextLower && prevUpper {
-				buf.WriteRune('_')
-			}
-
-			buf.WriteRune(unicode.ToLower(c))
-			prevUpper = true
-		} else {
-			prevUpper = false
-			buf.WriteRune(c)
-		}
-	}
-
-	return buf.String()
 }

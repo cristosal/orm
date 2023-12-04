@@ -1,14 +1,16 @@
-package dbx
+package orm
 
 import (
 	"fmt"
 	"strings"
+
+	"github.com/cristosal/orm/schema"
 )
 
 type (
 	// PaginationOptions for configuring paginate query
 	PaginationOptions struct {
-		Record        Record
+		Record        schema.Record
 		Query         string
 		QueryColumns  []string
 		Page          int
