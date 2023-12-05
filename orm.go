@@ -30,13 +30,23 @@ type (
 	}
 )
 
-// Exec executes a given sql statement and returns any error encountered
+var (
+	// ErrNotFound is an alias for sql.ErrNoRows
+	ErrNotFound = sql.ErrNoRows
+
+	// ErrInvalidType is an alias for schema.ErrInvalidType.
+	// The error occurs when the interface passed in as the v argument of an orm func is invalid.
+	// Most orm funcs accept either a pointer to a struct, or pointer to a slice of structs.
+	ErrInvalidType = schema.ErrInvalidType
+)
+
+// Exec executes the sql string returning any error encountered
 func Exec(db DB, sql string, args ...any) error {
 	_, err := db.Exec(sql, args...)
 	return err
 }
 
-// Query executes a given sql statement and scans the results into v
+// Query executes an sql statement and scans the result set into v
 func Query[T any](db DB, v *[]T, sql string, args ...any) error {
 	var t T
 	_, err := schema.Get(&t)
@@ -127,7 +137,7 @@ func Get(db DB, v any, s string, args ...any) error {
 
 	row := db.QueryRow(q, args...)
 	if row == nil {
-		return sql.ErrNoRows
+		return ErrNotFound
 	}
 
 	if row.Err() != nil {
@@ -154,14 +164,14 @@ func GetByID(db DB, v any) error {
 	return Get(db, v, fmt.Sprintf("WHERE %s = $1", col), val)
 }
 
-// All is the same as Many with an empty sql string.
+// ListAll is the same as List with an empty sql string.
 // It will return all rows from the table deduced by v and is equivalent to a select from table.
-func All[T any](db DB, v *[]T) error {
+func ListAll[T any](db DB, v *[]T) error {
 	return List(db, v, "")
 }
 
-// Insert inserts v into designated table. ID is set on v if available
-func Insert(db DB, v any) error {
+// Add inserts v into designated table. ID is set on v if available
+func Add(db DB, v any) error {
 	sch, err := schema.Get(v)
 	if err != nil {
 		return err
@@ -237,35 +247,6 @@ func UpdateByID(db DB, v any) error {
 	id := f.Int()
 	sql += fmt.Sprintf(" where %s = $%d", idField.Column, len(cols)+1)
 	values = append(values, id)
-	return Exec(db, sql, values...)
-}
-
-// UpdateByColumn sets values from v where the column matches v column
-func UpdateByColumn(db DB, v any, column string) error {
-	s, err := schema.Get(v)
-	if err != nil {
-		return err
-	}
-
-	var (
-		assignments = s.Fields.Writeable().Columns().AssignmentList(1)
-		sql         = fmt.Sprintf("UPDATE %s SET %s", s.Table, assignments)
-	)
-
-	values, err := schema.GetWriteableValues(v)
-	if err != nil {
-		return err
-	}
-
-	sql += fmt.Sprintf(" WHERE %s = $%d", column, len(values)+1)
-
-	_, index, err := s.Fields.FindByColumn(column)
-	if err != nil {
-		return err
-	}
-
-	columnValue := getValueAtIndex(v, index)
-	values = append(values, columnValue)
 	return Exec(db, sql, values...)
 }
 

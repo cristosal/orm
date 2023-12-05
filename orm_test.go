@@ -39,25 +39,10 @@ func TestUpdate(t *testing.T) {
 	a.Username = "foo"
 	a.Password = "bar"
 	orm.Update(&db, &a, "WHERE username = $1", a.Username)
-
-	orm.Get(&db, &a, "WHERE username = $1", a.Username)
-
 	db.ExpectSQL(t, "UPDATE a SET username = $2, password = $3 WHERE username = $1")
 	db.ExpectValueAt(t, 0, a.Username)
 	db.ExpectValueAt(t, 1, a.Username)
 	db.ExpectValueAt(t, 2, a.Password)
-}
-
-func TestUpdateByColumn(t *testing.T) {
-	db := mockDB{}
-	type A struct {
-		ID       int64
-		Username string
-		Password string
-	}
-	var a A
-	orm.UpdateByColumn(&db, &a, "username")
-	db.ExpectSQL(t, "UPDATE a SET username = $1, password = $2 WHERE username = $3")
 }
 
 func TestFieldsFindByColumn(t *testing.T) {
