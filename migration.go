@@ -4,9 +4,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"html/template"
 	"io/fs"
 	"os"
 	"path"
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -115,6 +117,16 @@ func AddMigration(db DB, migration *Migration) error {
 		return nil
 	}
 
+	up, err := parseMigrationTmpl(migration.Up)
+	if err != nil {
+		return err
+	}
+
+	down, err := parseMigrationTmpl(migration.Down)
+	if err != nil {
+		return err
+	}
+
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -124,12 +136,12 @@ func AddMigration(db DB, migration *Migration) error {
 
 	// insert record of the migration
 	sql = fmt.Sprintf("INSERT INTO %s (name, description, up, down) VALUES ($1, $2, $3, $4)", MigrationTable())
-	if _, err := tx.Exec(sql, migration.Name, migration.Description, migration.Up, migration.Down); err != nil {
+	if _, err := tx.Exec(sql, migration.Name, migration.Description, up, down); err != nil {
 		return err
 	}
 
 	// execute up migration
-	if _, err := tx.Exec(migration.Up); err != nil {
+	if _, err := tx.Exec(up); err != nil {
 		return err
 	}
 
@@ -376,4 +388,24 @@ func ListMigrations(db DB) ([]Migration, error) {
 	}
 
 	return migrations, nil
+}
+
+// parseMigrationTmpl parses the sql text as a template injecting .Schema and .MigrationTable variables
+func parseMigrationTmpl(sql string) (string, error) {
+	// parse up and down migrations
+	t, err := template.New("").Parse(sql)
+	if err != nil {
+		return "", fmt.Errorf("error parsing migration sql: %w", err)
+	}
+
+	b := new(strings.Builder)
+
+	if err := t.Execute(b, map[string]string{
+		"Schema":         schemaName,
+		"MigrationTable": tableName,
+	}); err != nil {
+		return "", fmt.Errorf("error executing migration template: %w", err)
+	}
+
+	return b.String(), nil
 }
