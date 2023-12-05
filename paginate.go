@@ -1,6 +1,7 @@
 package orm
 
 import (
+	"database/sql"
 	"fmt"
 	"strings"
 
@@ -10,7 +11,6 @@ import (
 type (
 	// PaginationOptions for configuring paginate query
 	PaginationOptions struct {
-		Record        schema.Record
 		Query         string
 		QueryColumns  []string
 		Page          int
@@ -20,9 +20,8 @@ type (
 	}
 
 	// PaginationResults contain results and stats from pagination query
-	PaginationResults[T any] struct {
+	PaginationResults struct {
 		Total   int64
-		Items   []T
 		Page    int
 		Start   int
 		End     int
@@ -30,12 +29,12 @@ type (
 	}
 
 	// SortDirection represents the sql sort direction
-	SortDirection = string
+	SortDirection string
 )
 
 const (
-	SortAscending  = SortDirection("asc")
-	SortDescending = SortDirection("desc")
+	SortDirectionAscending  SortDirection = "ASC"
+	SortDirectionDescending SortDirection = "DESC"
 )
 
 func (opts *PaginationOptions) queryable() bool {
@@ -51,47 +50,61 @@ func (opts *PaginationOptions) sqlQueryParam() string {
 }
 
 // Paginate returns paginated data for T
-func Paginate[T any](db DB, opts *PaginationOptions) (*PaginationResults[T], error) {
-	sql := ""
+func Paginate[T any](db DB, v *[]T, opts *PaginationOptions) (*PaginationResults, error) {
+	if opts == nil {
+		opts = &PaginationOptions{
+			Page:     1,
+			PageSize: 25,
+		}
+	}
 
+	var t T
+	sch, err := schema.Get(&t)
+	if err != nil {
+		return nil, err
+
+	}
+
+	sqlstr := ""
 	if opts.queryable() {
 		var parts []string
 		for _, col := range opts.QueryColumns {
-			parts = append(parts, fmt.Sprintf("%s like $1", col))
+			parts = append(parts, fmt.Sprintf("%s LIKE $1", col))
 		}
 
-		likeClause := strings.Join(parts, " or ")
-		sql = fmt.Sprintf("where %s", likeClause)
+		likeClause := strings.Join(parts, " OR ")
+		sqlstr = fmt.Sprintf("WHERE %s", likeClause)
 	}
 
-	// count
-	countq := fmt.Sprintf("select count(*) from %s %s", opts.Record.TableName(), sql)
-	var row Row
+	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", sch.Table, sqlstr)
+	var row *sql.Row
 
 	if opts.queryable() {
-		row = db.QueryRow(countq, opts.sqlQueryParam())
+		row = db.QueryRow(countQuery, opts.sqlQueryParam())
 	} else {
-		row = db.QueryRow(countq)
+		row = db.QueryRow(countQuery)
 	}
+
+	if row == nil {
+		return nil, sql.ErrNoRows
+	}
+
 	var count int64
 	if err := row.Scan(&count); err != nil {
 		return nil, err
 	}
 
 	if opts.sortable() {
-		sql = fmt.Sprintf("%s order by %s %s", sql, opts.SortBy, opts.SortDirection)
+		sqlstr = fmt.Sprintf("%s ORDER BY %s %s", sqlstr, opts.SortBy, opts.SortDirection)
 	}
 
 	offset := opts.Page * opts.PageSize
-	sql = fmt.Sprintf("%s limit %d offset %d", sql, opts.PageSize, offset)
-
-	var items []T
-	var err error
+	sqlstr = fmt.Sprintf("%s LIMIT %d OFFSET %d", sqlstr, opts.PageSize, offset)
 
 	if opts.queryable() {
-		err = Many(db, &items, sql, opts.sqlQueryParam())
+		err = Many(db, v, sqlstr, opts.sqlQueryParam())
 	} else {
-		err = Many(db, &items, sql)
+		err = Many(db, v, sqlstr)
 	}
 
 	if err != nil {
@@ -100,10 +113,9 @@ func Paginate[T any](db DB, opts *PaginationOptions) (*PaginationResults[T], err
 
 	hasNext := (int64(opts.Page)*int64(opts.PageSize))+int64(opts.PageSize) < count
 
-	results := &PaginationResults[T]{
+	results := &PaginationResults{
 		Start:   offset + 1,
 		End:     min((opts.Page+1)*opts.PageSize, int(count)),
-		Items:   items,
 		Page:    opts.Page,
 		Total:   count,
 		HasNext: hasNext,
