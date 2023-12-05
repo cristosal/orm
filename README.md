@@ -1,8 +1,8 @@
 # orm
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/cristosal/orm.svg)](https://pkg.go.dev/github.com/cristosal/pgxx)
+[![Go Reference](https://pkg.go.dev/badge/github.com/cristosal/dbx.svg)](https://pkg.go.dev/github.com/cristosal/pgxx)
 
-A library that faciliatates sql queries with struct mappings
+A library that facilitates sql queries and struct mappings in go
 
 ## Features
 
@@ -25,11 +25,11 @@ First let's create a struct that represents our table.
 
 ```go
 type User struct {
-	ID       int64
-	Name     string
-	Username string
-	Password string
-	Active   bool
+    ID       int64
+    Name     string
+    Username string
+    Password string
+    Active   bool
 }
 ```
 
@@ -40,7 +40,7 @@ Let's say we want this struct to map instead to a `users` table instead of a `us
 
 ```go
 func (User) TableName() string {
-	return "users"
+    return "users"
 }
 ```
 
@@ -57,9 +57,10 @@ To insert our user into the database we call the `Add` function. This function w
 
 ```go
 u := User{
-	Name:     "John Doe",
+    Name:     "John Doe",
     Username: "john_doe@example.com",
     Password: "changeme",
+    Active:   true,
 }
 
 err := orm.Add(db, &u)
