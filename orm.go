@@ -179,7 +179,7 @@ func Add(db DB, v any) error {
 
 	var cols = sch.Fields.Writeable().Columns()
 	sql := fmt.Sprintf("insert into %s (%s) values (%s)", sch.Table, cols.List(), cols.ValueList(1))
-	vals, err := schema.GetWriteableValues(v)
+	vals, err := schema.Values(v)
 	if err != nil {
 		return err
 	}
@@ -251,7 +251,7 @@ func Update(db DB, v any, sql string, args ...any) error {
 		s = fmt.Sprintf("%s %s", s, sql)
 	}
 
-	values, err := schema.GetWriteableValues(v)
+	values, err := schema.Values(v)
 	if err != nil {
 		return err
 	}
@@ -275,7 +275,7 @@ func UpdateByID(db DB, v any) error {
 	cols := sch.Fields.Writeable().Columns()
 	placeholders := cols.AssignmentList(1)
 	sql := fmt.Sprintf("update %s set %s", sch.Table, placeholders)
-	values, err := schema.GetWriteableValues(v)
+	values, err := schema.Values(v)
 	if err != nil {
 		return err
 	}
@@ -337,7 +337,7 @@ func getValueAtIndex(v any, index []int) interface{} {
 }
 
 func scanRow(row Row, v any) error {
-	vals, err := schema.GetScanableValues(v)
+	vals, err := schema.Addrs(v)
 	if err != nil {
 		return err
 	}
