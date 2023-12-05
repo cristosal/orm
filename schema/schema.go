@@ -12,7 +12,6 @@ import (
 
 var (
 	ErrInvalidType   = errors.New("invalid type")
-	ErrNoIdentity    = errors.New("identity not found")
 	ErrFieldNotFound = errors.New("field not found")
 	schemaCache      = make(map[string]*StructSchema)
 	schemaCacheMtx   = new(sync.RWMutex)
