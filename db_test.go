@@ -7,53 +7,24 @@ import (
 
 	"github.com/cristosal/orm"
 	"github.com/cristosal/orm/schema"
-	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-type mockResult struct{}
-
-func (mockResult) LastInsertId() (int64, error) {
-	return 1, nil
-}
-
-func (mockResult) RowsAffected() (int64, error) {
-	return 1, nil
-}
-
-type mockDB struct {
-	SQL    string
-	Values []any
-}
-
-func (db *mockDB) ExpectSQL(t *testing.T, sql string) {
-	if sql != db.SQL {
-		t.Fatalf("expected:\n%s\n\ngot:\n%s", sql, db.SQL)
+func TestPaginate(t *testing.T) {
+	db := mockDB{}
+	type User struct {
+		ID       int64
+		Username string
+		Password string
 	}
-}
 
-func (db *mockDB) ExpectValueAt(t *testing.T, index int, value interface{}) {
-	if db.Values[index] != value {
-		t.Fatalf("expected value at index %d to be %v\ngot %v", index, db.Values[index], value)
-	}
-}
+	var users []User
 
-func (db *mockDB) Exec(s string, args ...any) (sql.Result, error) {
-	db.SQL = s
-	db.Values = args
-	return mockResult{}, nil
-}
+	orm.Paginate(&db, &users, &orm.PaginationOptions{
+		Page:     1,
+		PageSize: 25,
+	})
 
-func (db *mockDB) Query(s string, args ...any) (*sql.Rows, error) {
-	db.SQL = s
-	db.Values = args
-	return nil, errors.New("test implementation")
-}
-
-func (db *mockDB) QueryRow(s string, args ...any) *sql.Row {
-	db.SQL = s
-	db.Values = args
-	return nil
-
+	db.ExpectSQL(t, "")
 }
 
 func TestUpdate(t *testing.T) {
@@ -138,4 +109,49 @@ func TestExec(t *testing.T) {
 	// orm.Exec(db, sql)
 	orm.Exec(db, sql)
 	db.ExpectSQL(t, sql)
+}
+
+type mockResult struct{}
+
+func (mockResult) LastInsertId() (int64, error) {
+	return 1, nil
+}
+
+func (mockResult) RowsAffected() (int64, error) {
+	return 1, nil
+}
+
+type mockDB struct {
+	SQL    string
+	Values []any
+}
+
+func (db *mockDB) ExpectSQL(t *testing.T, sql string) {
+	if sql != db.SQL {
+		t.Fatalf("expected:\n%s\n\ngot:\n%s", sql, db.SQL)
+	}
+}
+
+func (db *mockDB) ExpectValueAt(t *testing.T, index int, value interface{}) {
+	if db.Values[index] != value {
+		t.Fatalf("expected value at index %d to be %v\ngot %v", index, db.Values[index], value)
+	}
+}
+
+func (db *mockDB) Exec(s string, args ...any) (sql.Result, error) {
+	db.SQL = s
+	db.Values = args
+	return mockResult{}, nil
+}
+
+func (db *mockDB) Query(s string, args ...any) (*sql.Rows, error) {
+	db.SQL = s
+	db.Values = args
+	return nil, errors.New("test implementation")
+}
+
+func (db *mockDB) QueryRow(s string, args ...any) *sql.Row {
+	db.SQL = s
+	db.Values = args
+	return nil
 }
