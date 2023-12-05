@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strconv"
 	"strings"
 
 	"github.com/cristosal/orm/schema"
@@ -14,6 +13,7 @@ import (
 type (
 	// DB interface allows for interoperability between sql.Tx and sql.DB types
 	DB interface {
+		Begin() (*sql.Tx, error)
 		Exec(sql string, args ...any) (sql.Result, error)
 		Query(sql string, args ...any) (*sql.Rows, error)
 		QueryRow(sql string, args ...any) *sql.Row
@@ -29,24 +29,6 @@ type (
 		Scan(...any) error
 	}
 )
-
-// SerialID represents a SERIAL id
-type SerialID int64
-
-// String is the string representation of a serial id
-func (id SerialID) String() string {
-	return strconv.FormatInt(int64(id), 10)
-}
-
-// ParseSerialID attempts to parse a string into ID type
-func ParseSerialID(s string) (SerialID, error) {
-	id, err := strconv.ParseInt(s, 10, 64)
-	if err != nil {
-		return 0, err
-	}
-
-	return SerialID(id), nil
-}
 
 // Exec executes a given sql statement and returns any error encountered
 func Exec(db DB, sql string, args ...any) error {
@@ -83,8 +65,8 @@ func Query[T any](db DB, v *[]T, sql string, args ...any) error {
 	return nil
 }
 
-// Many is a select over columns defined in v
-func Many[T any](db DB, v *[]T, sql string, args ...any) error {
+// List is a select over columns defined in v
+func List[T any](db DB, v *[]T, sql string, args ...any) error {
 	var t T
 	schema, err := schema.Get(&t)
 	if err != nil {
@@ -126,9 +108,9 @@ func QueryRow(db DB, v any, sql string, args ...any) error {
 	return scanRow(row, v)
 }
 
-// One returns the first row encountered that satisfies the sql condition.
-// The sql string is placed immediately after the select statement
-func One(db DB, v any, s string, args ...any) error {
+// Get returns the first row encountered.
+// The sql string is placed immediately after the SELECT statement.
+func Get(db DB, v any, s string, args ...any) error {
 	sch, err := schema.Get(v)
 	if err != nil {
 		return err
@@ -155,10 +137,27 @@ func One(db DB, v any, s string, args ...any) error {
 	return scanRow(row, v)
 }
 
+func GetByID(db DB, v any) error {
+	sch, err := schema.Get(v)
+	if err != nil {
+		return err
+	}
+
+	f, index, err := sch.Fields.FindPK()
+	if err != nil {
+		return err
+	}
+
+	val := getValueAtIndex(v, index)
+	col := f.Column
+
+	return Get(db, v, fmt.Sprintf("WHERE %s = $1", col), val)
+}
+
 // All is the same as Many with an empty sql string.
 // It will return all rows from the table deduced by v and is equivalent to a select from table.
 func All[T any](db DB, v *[]T) error {
-	return Many(db, v, "")
+	return List(db, v, "")
 }
 
 // Insert inserts v into designated table. ID is set on v if available
@@ -288,26 +287,6 @@ func CollectStrings(rows Rows) ([]string, error) {
 	}
 
 	return strs, nil
-}
-
-// CollectIDs scans each row for id value
-func CollectIDs(rows Rows) ([]SerialID, error) {
-	defer rows.Close()
-	var ids []SerialID
-	for rows.Next() {
-		var id SerialID
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-
-		ids = append(ids, id)
-	}
-
-	if ids == nil {
-		return nil, sql.ErrNoRows
-	}
-
-	return ids, nil
 }
 
 // CollectRows scans a T from each row

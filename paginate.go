@@ -16,7 +16,7 @@ type (
 		Page          int
 		PageSize      int
 		SortBy        string
-		SortDirection SortDirection
+		SortDirection string
 	}
 
 	// PaginationResults contain results and stats from pagination query
@@ -27,14 +27,6 @@ type (
 		End     int
 		HasNext bool
 	}
-
-	// SortDirection represents the sql sort direction
-	SortDirection string
-)
-
-const (
-	SortDirectionAscending  SortDirection = "ASC"
-	SortDirectionDescending SortDirection = "DESC"
 )
 
 func (opts *PaginationOptions) queryable() bool {
@@ -102,9 +94,9 @@ func Paginate[T any](db DB, v *[]T, opts *PaginationOptions) (*PaginationResults
 	sqlstr = fmt.Sprintf("%s LIMIT %d OFFSET %d", sqlstr, opts.PageSize, offset)
 
 	if opts.queryable() {
-		err = Many(db, v, sqlstr, opts.sqlQueryParam())
+		err = List(db, v, sqlstr, opts.sqlQueryParam())
 	} else {
-		err = Many(db, v, sqlstr)
+		err = List(db, v, sqlstr)
 	}
 
 	if err != nil {

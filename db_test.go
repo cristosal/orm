@@ -39,6 +39,9 @@ func TestUpdate(t *testing.T) {
 	a.Username = "foo"
 	a.Password = "bar"
 	orm.Update(&db, &a, "WHERE username = $1", a.Username)
+
+	orm.Get(&db, &a, "WHERE username = $1", a.Username)
+
 	db.ExpectSQL(t, "UPDATE a SET username = $2, password = $3 WHERE username = $1")
 	db.ExpectValueAt(t, 0, a.Username)
 	db.ExpectValueAt(t, 1, a.Username)
@@ -90,7 +93,7 @@ func TestOneNoSQL(t *testing.T) {
 	type TempTable struct{ V string }
 	db := &mockDB{}
 	var foo TempTable
-	orm.One(db, &foo, "")
+	orm.Get(db, &foo, "")
 	db.ExpectSQL(t, "SELECT v FROM temp_table")
 }
 
@@ -98,7 +101,7 @@ func TestOneSQL(t *testing.T) {
 	type TempTable struct{ V string }
 	db := &mockDB{}
 	var foo TempTable
-	orm.One(db, &foo, "WHERE v = $1", 1)
+	orm.Get(db, &foo, "WHERE v = $1", 1)
 	db.ExpectSQL(t, "SELECT v FROM temp_table WHERE v = $1")
 	db.ExpectValueAt(t, 0, 1)
 }
@@ -130,6 +133,10 @@ func (db *mockDB) ExpectSQL(t *testing.T, sql string) {
 	if sql != db.SQL {
 		t.Fatalf("expected:\n%s\n\ngot:\n%s", sql, db.SQL)
 	}
+}
+
+func (db *mockDB) Begin() (*sql.Tx, error) {
+	return nil, nil
 }
 
 func (db *mockDB) ExpectValueAt(t *testing.T, index int, value interface{}) {
