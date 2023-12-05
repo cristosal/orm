@@ -134,3 +134,43 @@ Remove also has a `ByID` variant
 err := orm.RemoveByID(db, &u)
 ```
 
+## Migrations
+
+Initialize migration tables
+
+```go
+err := orm.CreateMigrationTable()
+```
+
+The core functionality is encompassed in the following methods
+
+```go
+// AddMigration adds a migration to the database and executes it.
+// No error is returned if migration was already executed
+func AddMigration(db.DB, migration *Migration) error
+
+// RemoveMigration executes the down migration removes the migration from db
+func RemoveMigration(db.DB) error
+```
+
+Example of pushing a migration
+
+```go
+orm.AddMigration(db, &orm.Migration{
+	Name:        "Create Users Table",
+	Description: "Add Users Table with username and password fields",
+	Up: `CREATE TABLE users (
+		id SERIAL PRIMARY KEY,
+		username VARCHAR(255) NOT NULL UNIQUE,
+		password TEXT NOT NULL
+	)`,
+	Down: "DROP TABLE users"
+})
+```
+
+This Migration can then be reversed by calling the Remove method
+
+```go
+orm.Remove(db)
+```
+
