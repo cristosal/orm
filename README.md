@@ -2,16 +2,13 @@
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/cristosal/dbx.svg)](https://pkg.go.dev/github.com/cristosal/pgxx)
 
-A library that facilitates sql queries and struct mappings in go
-
 ## Features
 
 - Struct to column mapping via `db` tags
-- Pagination support
-- Migrations
+- Database schema management via migrations
 ## Installation
 
-`go get -u github.com/cristosal/orm`
+`go get -u github.com/crisatosal/orm`
 
 ## Documentation
 
@@ -134,12 +131,22 @@ Remove also has a `ByID` variant
 err := orm.RemoveByID(db, &u)
 ```
 
+
 ## Migrations
+
+In order to change your database schema over time you can use the migration features built in to `orm`.
 
 Initialize migration tables
 
 ```go
-err := orm.CreateMigrationTable()
+err := orm.CreateMigrationTable(db)
+```
+
+You can  change the name of the table or the schema that is used for  migrations if you wish.
+
+```go
+orm.SetMigrationTable("my_migrations") // defaults to _migrations
+orm.SetSchema("my_schema")             // defaults to public
 ```
 
 The core functionality is encompassed in the following methods
@@ -153,7 +160,9 @@ func AddMigration(db.DB, migration *Migration) error
 func RemoveMigration(db.DB) error
 ```
 
-Example of pushing a migration
+### Add Migration
+
+Example of adding/ a migration
 
 ```go
 orm.AddMigration(db, &orm.Migration{
@@ -168,9 +177,11 @@ orm.AddMigration(db, &orm.Migration{
 })
 ```
 
-This Migration can then be reversed by calling the Remove method
+### Remove Migration
+
+The most recent migration can then be reversed by calling the Remove method
 
 ```go
-orm.Remove(db)
+orm.RemoveMigration(db)
 ```
 
