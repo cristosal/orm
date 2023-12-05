@@ -1,87 +1,50 @@
-// Package pgxx contains helper functions for pgx
-package pgxx
+package schema
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"reflect"
 	"strings"
 	"sync"
+	"unicode"
 )
 
 var (
-	ErrInvalidType = errors.New("invalid type")
-	ErrNoIdentity  = errors.New("identity not found")
-	cache          = make(map[string]*Schema)
-	cacheMtx       = new(sync.RWMutex)
+	ErrInvalidType   = errors.New("invalid type")
+	ErrFieldNotFound = errors.New("field not found")
+	schemaCache      = make(map[string]*Schema)
+	schemaCacheMtx   = new(sync.RWMutex)
 )
-
-func getSchema(key string) *Schema {
-	cacheMtx.RLock()
-	defer cacheMtx.RUnlock()
-	return cache[key]
-}
-
-func setSchema(key string, s *Schema) {
-	cacheMtx.Lock()
-	defer cacheMtx.Unlock()
-	cache[key] = s
-}
 
 type (
 	// Schema contains the database mapping information for a given type
 	Schema struct {
 		Parent *Schema      // Not nil if schema represents an embeded type
-		Table  string       // Database table name
+		Table  string       // Table name in databse
 		Type   reflect.Type // Underlying reflect type
-		Fields Fields       // Field maps
+		Fields Fields       // Field mappings
 	}
 
-	// Fields faciliatates collection methods over fields
-	Fields []Field
-
-	// Field contains mapping information between struct field and database column
-	Field struct {
-		Name     string  // Name of the field in the struct
-		Column   string  // Name of the database column
-		Index    int     // Index of the field within a struct
-		Identity bool    // Is an ID field
-		ReadOnly bool    // Is only for select queries
-		FK       *FK     // Foreign key meta data
-		Schema   *Schema // Embeded schema
-	}
-
-	// FK represents foreign key field metadata
-	FK struct {
-		Table  string // Foreign table name
-		Column string // Foreign table column
+	// Record is implemented by structs which wish to override the default table name
+	Record interface {
+		TableName() string
 	}
 )
 
 // IsRoot is true when the schema is not embeded
 func (s *Schema) IsRoot() bool { return s.Parent == nil }
 
-// HasSchema returns true when the field contains an embeded schema
-func (f *Field) HasSchema() bool { return f.Schema != nil }
-
-// IsWriteable is true when the fields value can be included in an insert or update statement
-func (f *Field) IsWriteable() bool { return !f.ReadOnly && !f.Identity }
-
-// ClearCache clears the schema cache
-func ClearCache() {
-	cache = make(map[string]*Schema)
-}
-
-// Analyze returns a schema representing the mapping between the go type and database row.
+// Get returns a schema representing the mapping between the go type and database row.
 // Schemas are cached by table name so as not to repeat analisis unnecesarily.
-func Analyze(v interface{}) (sch *Schema, err error) {
+func Get(v interface{}) (sch *Schema, err error) {
 	var table string
-
 	rec, isRecord := v.(Record)
 	if isRecord {
 		table = rec.TableName()
-		if getSchema(table) != nil {
-			return getSchema(table), nil
+		sch := lookup(table)
+		if sch != nil {
+			return sch, nil
 		}
 	}
 
@@ -94,8 +57,8 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 		table = snakecase(typ.Name())
 	}
 
-	if getSchema(table) != nil {
-		return getSchema(table), nil
+	if lookup(table) != nil {
+		return lookup(table), nil
 	}
 
 	sch = new(Schema)
@@ -106,7 +69,7 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 		field := typ.Field(i)
 
 		if field.Anonymous && field.IsExported() {
-			embeded, _ := Analyze(val.Field(i).Interface())
+			embeded, _ := Get(val.Field(i).Interface())
 			embeded.Parent = sch
 
 			sch.Fields = append(sch.Fields, Field{
@@ -128,7 +91,7 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 				Name:     field.Name,
 				Column:   col,
 				Index:    i,
-				Identity: col == "id",
+				PK:       col == "id",
 				ReadOnly: col == "id",
 			}
 
@@ -142,14 +105,14 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 			Name:     field.Name,
 			Index:    i,
 			Column:   column,
-			Identity: column == "id",
+			PK:       column == "id",
 			ReadOnly: column == "id",
 		}
 
 		for i, part := range parts {
 			if i == 0 {
-				if part == "id" {
-					info.Identity = true
+				if part == "id" || part == "pk" {
+					info.PK = true
 					info.ReadOnly = true
 				}
 				continue
@@ -171,8 +134,7 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 				}
 			} else {
 				switch part {
-				case "pk":
-					info.Identity = true
+				// TODO: add other cases for db tags here
 				case "ro", "readonly":
 					info.ReadOnly = true
 				}
@@ -182,92 +144,28 @@ func Analyze(v interface{}) (sch *Schema, err error) {
 		sch.Fields = append(sch.Fields, info)
 	}
 
-	setSchema(table, sch)
+	save(table, sch)
 	return
 }
 
-// MustAnalyze panics if schema analisis fails. See Analyze for further information
-func MustAnalyze(v interface{}) *Schema {
-	sch, err := Analyze(v)
+// MustGet panics if Get fails. See Get for further information
+func MustGet(v interface{}) *Schema {
+	sch, err := Get(v)
 	if err != nil {
 		panic(err)
 	}
+
 	return sch
 }
 
-// Identity returns the first identity field found
-func (fields Fields) Identity() (*Field, []int, error) {
-	var index []int
-
-	for _, field := range fields {
-		if field.Identity {
-			index = append(index, field.Index)
-			return &field, index, nil
-		}
-
-		// returns the first field with the identity
-		if field.HasSchema() {
-			f, indexes, _ := field.Schema.Fields.Identity()
-			if f != nil {
-				index = append(index, field.Index)
-				index = append(index, indexes...)
-				return f, index, nil
-			}
-		}
-	}
-	return nil, index, ErrNoIdentity
+// ClearCache clears the schema cache
+func ClearCache() {
+	schemaCache = make(map[string]*Schema)
 }
 
-// ForeignKeys are fields representing foreign keys
-func (fields Fields) ForeignKeys() Fields {
-	info := []Field{}
-	for _, f := range fields {
-		if f.FK != nil {
-			info = append(info, f)
-		}
-	}
-	return info
-}
-
-// Writeable returns all writeable fields
-// A field is writeable if it is not marked as readonly or is an identity field
-func (fields Fields) Writeable() Fields {
-	var ret Fields
-
-	for _, field := range fields {
-		if !field.IsWriteable() {
-			continue
-		}
-
-		if field.HasSchema() {
-			fs := field.Schema.Fields.Writeable()
-			ret = append(ret, fs...)
-			continue
-		}
-
-		ret = append(ret, field)
-	}
-
-	return ret
-}
-
-// Columns returns all database columns for the given fields
-// it goes recursively through fields
-func (fields Fields) Columns() (columns Columns) {
-	for _, f := range fields {
-		if f.HasSchema() {
-			columns = append(columns, f.Schema.Fields.Columns()...)
-			continue
-		}
-
-		columns = append(columns, f.Column)
-	}
-	return
-}
-
-// scanableValues returns all scannable values from a given struct.
-func scanableValues(v interface{}) (values []any, err error) {
-	sch, err := Analyze(v)
+// Addrs returns all scannable values from a given struct.
+func Addrs(v interface{}) (values []any, err error) {
+	sch, err := Get(v)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +179,7 @@ func scanableValues(v interface{}) (values []any, err error) {
 		v := sv.Field(f.Index)
 
 		if f.HasSchema() {
-			recursive, err := scanableValues(v.Addr().Interface())
+			recursive, err := Addrs(v.Addr().Interface())
 			if err != nil {
 				return nil, err
 			}
@@ -296,9 +194,9 @@ func scanableValues(v interface{}) (values []any, err error) {
 	return values, nil
 }
 
-// writeableValues returns the value from struct fields not marked as readonly
-func writeableValues(v interface{}) (values []any, err error) {
-	sch, err := Analyze(v)
+// Values returns the values from struct fields not marked as readonly
+func Values(v interface{}) (values []any, err error) {
+	sch, err := Get(v)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +215,7 @@ func writeableValues(v interface{}) (values []any, err error) {
 
 		// recursively analyze the schema
 		if field.HasSchema() {
-			vals, _ := writeableValues(v.Interface())
+			vals, _ := Values(v.Interface())
 			values = append(values, vals...)
 			continue
 		}
@@ -395,4 +293,51 @@ func infer(v interface{}) (typ reflect.Type, val reflect.Value, err error) {
 
 	err = nil
 	return
+}
+
+func snakecase(input string) string {
+	var (
+		buf       bytes.Buffer
+		prevUpper = false
+		nextLower = false
+	)
+
+	for i, c := range input {
+		// need to check if next character is lower case
+		if i == len(input)-1 {
+			nextLower = false
+		} else {
+			nextLower = unicode.IsLower(rune(input[i+1]))
+		}
+
+		if unicode.IsUpper(c) {
+			if i > 0 && !prevUpper {
+				buf.WriteRune('_')
+			}
+
+			if nextLower && prevUpper {
+				buf.WriteRune('_')
+			}
+
+			buf.WriteRune(unicode.ToLower(c))
+			prevUpper = true
+		} else {
+			prevUpper = false
+			buf.WriteRune(c)
+		}
+	}
+
+	return buf.String()
+}
+
+func lookup(key string) *Schema {
+	schemaCacheMtx.RLock()
+	defer schemaCacheMtx.RUnlock()
+	return schemaCache[key]
+}
+
+func save(key string, s *Schema) {
+	schemaCacheMtx.Lock()
+	defer schemaCacheMtx.Unlock()
+	schemaCache[key] = s
 }

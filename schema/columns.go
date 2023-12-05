@@ -1,4 +1,4 @@
-package pgxx
+package schema
 
 import (
 	"fmt"
