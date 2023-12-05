@@ -5,13 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
-	"io/fs"
-	"os"
-	"path"
 	"strings"
 	"time"
-
-	"github.com/spf13/viper"
 )
 
 const (
@@ -163,96 +158,6 @@ func AddMigrations(db DB, migrations []Migration) error {
 	}
 
 	return nil
-}
-
-// AddMigrationFile pushes a migration from a file
-func AddMigrationFile(db DB, filepath string) error {
-	v := viper.New()
-	v.SetConfigFile(filepath)
-	if err := v.ReadInConfig(); err != nil {
-		return err
-	}
-
-	var migration Migration
-
-	if err := v.Unmarshal(&migration); err != nil {
-		return err
-	}
-
-	return AddMigration(db, &migration)
-}
-
-// AddMigrationFileFS pushes a file with given name from the filesystem
-func AddMigrationFileFS(db DB, filesystem fs.FS, filepath string) error {
-	v := viper.New()
-
-	f, err := filesystem.Open(path.Join(".", filepath))
-
-	if err != nil {
-		return err
-	}
-
-	defer f.Close()
-	ext := path.Ext(filepath)
-	v.SetConfigType(ext[1:])
-
-	if err := v.ReadConfig(f); err != nil {
-		return err
-	}
-
-	var migration Migration
-	if err := v.Unmarshal(&migration); err != nil {
-		return err
-	}
-
-	return AddMigration(db, &migration)
-}
-
-// AddMigrationDir pushes all migrations inside a directory
-func AddMigrationDir(db DB, dirpath string) error {
-	entries, err := os.ReadDir(dirpath)
-	if err != nil {
-		return err
-	}
-
-	for i := range entries {
-		filepath := path.Join(dirpath, entries[i].Name())
-		if err := AddMigrationFile(db, filepath); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// AddMigrationDirFS pushes migrations from a directory inside fs
-func AddMigrationDirFS(db DB, filesystem fs.FS, dirpath string) error {
-	// here is where we read
-	entries, err := fs.ReadDir(filesystem, dirpath)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		filename := path.Join(dirpath, entry.Name())
-
-		if entry.IsDir() {
-			if err := AddMigrationDirFS(db, filesystem, filename); err != nil {
-				return err
-			}
-		} else {
-			if err := AddMigrationFileFS(db, filesystem, filename); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// AddMigrationFS pushes all migrations in a directory using fs.FS
-func AddMigrationFS(db DB, filesystem fs.FS) error {
-	return AddMigrationDirFS(db, filesystem, ".")
 }
 
 // RemoveMigration reverts the last migration
