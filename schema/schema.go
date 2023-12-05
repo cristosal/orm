@@ -13,17 +13,17 @@ import (
 var (
 	ErrInvalidType   = errors.New("invalid type")
 	ErrFieldNotFound = errors.New("field not found")
-	schemaCache      = make(map[string]*StructSchema)
+	schemaCache      = make(map[string]*Schema)
 	schemaCacheMtx   = new(sync.RWMutex)
 )
 
 type (
-	// StructSchema contains the database mapping information for a given type
-	StructSchema struct {
-		Parent *StructSchema // Not nil if schema represents an embeded type
-		Table  string        // Table name in databse
-		Type   reflect.Type  // Underlying reflect type
-		Fields Fields        // Field mappings
+	// Schema contains the database mapping information for a given type
+	Schema struct {
+		Parent *Schema      // Not nil if schema represents an embeded type
+		Table  string       // Table name in databse
+		Type   reflect.Type // Underlying reflect type
+		Fields Fields       // Field mappings
 	}
 
 	// Record is implemented by structs which wish to override the default table name
@@ -33,17 +33,18 @@ type (
 )
 
 // IsRoot is true when the schema is not embeded
-func (s *StructSchema) IsRoot() bool { return s.Parent == nil }
+func (s *Schema) IsRoot() bool { return s.Parent == nil }
 
 // Get returns a schema representing the mapping between the go type and database row.
 // Schemas are cached by table name so as not to repeat analisis unnecesarily.
-func Get(v interface{}) (sch *StructSchema, err error) {
+func Get(v interface{}) (sch *Schema, err error) {
 	var table string
 	rec, isRecord := v.(Record)
 	if isRecord {
 		table = rec.TableName()
-		if getSchema(table) != nil {
-			return getSchema(table), nil
+		sch := lookup(table)
+		if sch != nil {
+			return sch, nil
 		}
 	}
 
@@ -56,11 +57,11 @@ func Get(v interface{}) (sch *StructSchema, err error) {
 		table = snakecase(typ.Name())
 	}
 
-	if getSchema(table) != nil {
-		return getSchema(table), nil
+	if lookup(table) != nil {
+		return lookup(table), nil
 	}
 
-	sch = new(StructSchema)
+	sch = new(Schema)
 	sch.Table = table
 	sch.Type = typ
 
@@ -110,7 +111,7 @@ func Get(v interface{}) (sch *StructSchema, err error) {
 
 		for i, part := range parts {
 			if i == 0 {
-				if part == "id" {
+				if part == "id" || part == "pk" {
 					info.PK = true
 					info.ReadOnly = true
 				}
@@ -133,8 +134,7 @@ func Get(v interface{}) (sch *StructSchema, err error) {
 				}
 			} else {
 				switch part {
-				case "pk":
-					info.PK = true
+				// TODO: add other cases for db tags here
 				case "ro", "readonly":
 					info.ReadOnly = true
 				}
@@ -144,12 +144,12 @@ func Get(v interface{}) (sch *StructSchema, err error) {
 		sch.Fields = append(sch.Fields, info)
 	}
 
-	setSchema(table, sch)
+	save(table, sch)
 	return
 }
 
 // MustGet panics if Get fails. See Get for further information
-func MustGet(v interface{}) *StructSchema {
+func MustGet(v interface{}) *Schema {
 	sch, err := Get(v)
 	if err != nil {
 		panic(err)
@@ -158,13 +158,13 @@ func MustGet(v interface{}) *StructSchema {
 	return sch
 }
 
-// Clear clears the schema cache
-func Clear() {
-	schemaCache = make(map[string]*StructSchema)
+// ClearCache clears the schema cache
+func ClearCache() {
+	schemaCache = make(map[string]*Schema)
 }
 
-// GetScanableValues returns all scannable values from a given struct.
-func GetScanableValues(v interface{}) (values []any, err error) {
+// Addrs returns all scannable values from a given struct.
+func Addrs(v interface{}) (values []any, err error) {
 	sch, err := Get(v)
 	if err != nil {
 		return nil, err
@@ -179,7 +179,7 @@ func GetScanableValues(v interface{}) (values []any, err error) {
 		v := sv.Field(f.Index)
 
 		if f.HasSchema() {
-			recursive, err := GetScanableValues(v.Addr().Interface())
+			recursive, err := Addrs(v.Addr().Interface())
 			if err != nil {
 				return nil, err
 			}
@@ -194,8 +194,8 @@ func GetScanableValues(v interface{}) (values []any, err error) {
 	return values, nil
 }
 
-// GetWriteableValues returns the value from struct fields not marked as readonly
-func GetWriteableValues(v interface{}) (values []any, err error) {
+// Values returns the values from struct fields not marked as readonly
+func Values(v interface{}) (values []any, err error) {
 	sch, err := Get(v)
 	if err != nil {
 		return nil, err
@@ -215,7 +215,7 @@ func GetWriteableValues(v interface{}) (values []any, err error) {
 
 		// recursively analyze the schema
 		if field.HasSchema() {
-			vals, _ := GetWriteableValues(v.Interface())
+			vals, _ := Values(v.Interface())
 			values = append(values, vals...)
 			continue
 		}
@@ -330,13 +330,13 @@ func snakecase(input string) string {
 	return buf.String()
 }
 
-func getSchema(key string) *StructSchema {
+func lookup(key string) *Schema {
 	schemaCacheMtx.RLock()
 	defer schemaCacheMtx.RUnlock()
 	return schemaCache[key]
 }
 
-func setSchema(key string, s *StructSchema) {
+func save(key string, s *Schema) {
 	schemaCacheMtx.Lock()
 	defer schemaCacheMtx.Unlock()
 	schemaCache[key] = s

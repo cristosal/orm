@@ -2,13 +2,13 @@ package schema
 
 // Field contains mapping information between struct field and database column
 type Field struct {
-	Name     string        // Name of the field in the struct
-	Column   string        // Name of the database column
-	Index    int           // Index of the field within a struct
-	ReadOnly bool          // Is only for select queries
-	FK       *FK           // Foreign key meta data
-	PK       bool          // Is a pk field
-	Schema   *StructSchema // Embeded schema
+	Name     string  // Name of the field in the struct
+	Column   string  // Name of the database column
+	Index    int     // Index of the field within a struct
+	ReadOnly bool    // Is only for select queries
+	FK       *FK     // Foreign key meta data
+	PK       bool    // Is a pk field
+	Schema   *Schema // Embeded schema
 }
 
 // FK represents foreign key field metadata
