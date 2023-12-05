@@ -200,6 +200,44 @@ func Add(db DB, v any) error {
 	return row.Scan(addr)
 }
 
+func DropTable(db DB, v any) error {
+	sch, err := schema.Get(v)
+	if err != nil {
+		return err
+	}
+
+	s := fmt.Sprintf("DROP TABLE %s", sch.Table)
+	return Exec(db, s)
+}
+
+func Remove(db DB, v any, s string, args ...any) error {
+	sch, err := schema.Get(v)
+	if err != nil {
+		return err
+	}
+	sqlstr := fmt.Sprintf("DELETE FROM %s %s", sch.Table, s)
+	return Exec(db, sqlstr, args...)
+}
+
+func RemoveByID(db DB, v any) error {
+	sch, err := schema.Get(v)
+	if err != nil {
+		return err
+	}
+
+	f, index, err := sch.Fields.FindPK()
+	if err != nil {
+		return err
+	}
+
+	var (
+		val = getValueAtIndex(v, index)
+		sql = fmt.Sprintf("DELETE FROM %s WHERE %s = $1", sch.Table, f.Column)
+	)
+
+	return Exec(db, sql, val)
+}
+
 func Update(db DB, v any, sql string, args ...any) error {
 	start := len(args) + 1
 	sch, err := schema.Get(v)
