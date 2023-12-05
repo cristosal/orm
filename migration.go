@@ -92,8 +92,8 @@ func DropMigrationTable(db DB) error {
 	return Exec(db, fmt.Sprintf("DROP TABLE %s", MigrationTable()))
 }
 
-// PushMigration adds a migration to the database and executes it
-func PushMigration(db DB, migration *Migration) error {
+// AddMigration adds a migration to the database and executes it
+func AddMigration(db DB, migration *Migration) error {
 	if migration.Name == "" {
 		return errors.New("migration name is required")
 	}
@@ -142,10 +142,10 @@ func PushMigration(db DB, migration *Migration) error {
 	return tx.Commit()
 }
 
-// PushMigrations pushes multiple migrations returning the first error encountered
-func PushMigrations(db DB, migrations []Migration) error {
+// AddMigrations pushes multiple migrations returning the first error encountered
+func AddMigrations(db DB, migrations []Migration) error {
 	for i := range migrations {
-		if err := PushMigration(db, &migrations[i]); err != nil {
+		if err := AddMigration(db, &migrations[i]); err != nil {
 			return err
 		}
 	}
@@ -153,8 +153,8 @@ func PushMigrations(db DB, migrations []Migration) error {
 	return nil
 }
 
-// PushMigrationFile pushes a migration from a file
-func PushMigrationFile(db DB, filepath string) error {
+// AddMigrationFile pushes a migration from a file
+func AddMigrationFile(db DB, filepath string) error {
 	v := viper.New()
 	v.SetConfigFile(filepath)
 	if err := v.ReadInConfig(); err != nil {
@@ -167,11 +167,11 @@ func PushMigrationFile(db DB, filepath string) error {
 		return err
 	}
 
-	return PushMigration(db, &migration)
+	return AddMigration(db, &migration)
 }
 
-// PushMigrationFileFS pushes a file with given name from the filesystem
-func PushMigrationFileFS(db DB, filesystem fs.FS, filepath string) error {
+// AddMigrationFileFS pushes a file with given name from the filesystem
+func AddMigrationFileFS(db DB, filesystem fs.FS, filepath string) error {
 	v := viper.New()
 
 	f, err := filesystem.Open(path.Join(".", filepath))
@@ -193,11 +193,11 @@ func PushMigrationFileFS(db DB, filesystem fs.FS, filepath string) error {
 		return err
 	}
 
-	return PushMigration(db, &migration)
+	return AddMigration(db, &migration)
 }
 
-// PushMigrationDir pushes all migrations inside a directory
-func PushMigrationDir(db DB, dirpath string) error {
+// AddMigrationDir pushes all migrations inside a directory
+func AddMigrationDir(db DB, dirpath string) error {
 	entries, err := os.ReadDir(dirpath)
 	if err != nil {
 		return err
@@ -205,7 +205,7 @@ func PushMigrationDir(db DB, dirpath string) error {
 
 	for i := range entries {
 		filepath := path.Join(dirpath, entries[i].Name())
-		if err := PushMigrationFile(db, filepath); err != nil {
+		if err := AddMigrationFile(db, filepath); err != nil {
 			return err
 		}
 	}
@@ -213,8 +213,8 @@ func PushMigrationDir(db DB, dirpath string) error {
 	return nil
 }
 
-// PushMigrationDirFS pushes migrations from a directory inside fs
-func PushMigrationDirFS(db DB, filesystem fs.FS, dirpath string) error {
+// AddMigrationDirFS pushes migrations from a directory inside fs
+func AddMigrationDirFS(db DB, filesystem fs.FS, dirpath string) error {
 	// here is where we read
 	entries, err := fs.ReadDir(filesystem, dirpath)
 	if err != nil {
@@ -225,11 +225,11 @@ func PushMigrationDirFS(db DB, filesystem fs.FS, dirpath string) error {
 		filename := path.Join(dirpath, entry.Name())
 
 		if entry.IsDir() {
-			if err := PushMigrationDirFS(db, filesystem, filename); err != nil {
+			if err := AddMigrationDirFS(db, filesystem, filename); err != nil {
 				return err
 			}
 		} else {
-			if err := PushMigrationFileFS(db, filesystem, filename); err != nil {
+			if err := AddMigrationFileFS(db, filesystem, filename); err != nil {
 				return err
 			}
 		}
@@ -238,13 +238,13 @@ func PushMigrationDirFS(db DB, filesystem fs.FS, dirpath string) error {
 	return nil
 }
 
-// PushMigrationFS pushes all migrations in a directory using fs.FS
-func PushMigrationFS(db DB, filesystem fs.FS) error {
-	return PushMigrationDirFS(db, filesystem, ".")
+// AddMigrationFS pushes all migrations in a directory using fs.FS
+func AddMigrationFS(db DB, filesystem fs.FS) error {
+	return AddMigrationDirFS(db, filesystem, ".")
 }
 
-// PopMigration reverts the last migration
-func PopMigration(db DB) error {
+// RemoveMigration reverts the last migration
+func RemoveMigration(db DB) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
@@ -280,12 +280,12 @@ func PopMigration(db DB) error {
 	return tx.Commit()
 }
 
-// PopAllMigrations reverts all migrations
-func PopAllMigrations(db DB) (int, error) {
+// RemoveAllMigrations reverts all migrations
+func RemoveAllMigrations(db DB) (int, error) {
 	var n int
 
 	for {
-		if err := PopMigration(db); err != nil {
+		if err := RemoveMigration(db); err != nil {
 			if errors.Is(err, ErrNoMigration) {
 				if n == 0 {
 					return 0, ErrNoMigration
@@ -300,8 +300,8 @@ func PopAllMigrations(db DB) (int, error) {
 	}
 }
 
-// PopMigrationsUntil pops until a migration with given name is reached
-func PopMigrationsUntil(db DB, name string) error {
+// RemoveMigrationsUntil pops until a migration with given name is reached
+func RemoveMigrationsUntil(db DB, name string) error {
 	var (
 		mig *Migration
 		err error
@@ -318,7 +318,7 @@ func PopMigrationsUntil(db DB, name string) error {
 			return nil
 		}
 
-		if err := PopMigration(db); err != nil {
+		if err := RemoveMigration(db); err != nil {
 			return err
 		}
 	}
