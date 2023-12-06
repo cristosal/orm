@@ -89,7 +89,9 @@ func DropMigrationTable(db DB) error {
 	return Exec(db, fmt.Sprintf("DROP TABLE %s", MigrationTable()))
 }
 
-// AddMigration adds a migration to the database and executes it
+// AddMigration to the database and execute it.
+// No error is returned if a migration with the same name has already been executed.
+// Up and Down sql strings are parsed as go template strings before execution and saved to the database.
 func AddMigration(db DB, migration *Migration) error {
 	if migration.Name == "" {
 		return errors.New("migration name is required")
@@ -107,8 +109,8 @@ func AddMigration(db DB, migration *Migration) error {
 
 	row.Scan(&name)
 
+	// return nil if migration has already been executed
 	if name == migration.Name {
-		// we have already pushed it
 		return nil
 	}
 
@@ -149,7 +151,8 @@ func AddMigration(db DB, migration *Migration) error {
 	return tx.Commit()
 }
 
-// AddMigrations pushes multiple migrations returning the first error encountered
+// AddMigrations pushes multiple migrations returning the first error encountered.
+// See AddMigration for further info.
 func AddMigrations(db DB, migrations []Migration) error {
 	for i := range migrations {
 		if err := AddMigration(db, &migrations[i]); err != nil {
@@ -160,7 +163,8 @@ func AddMigrations(db DB, migrations []Migration) error {
 	return nil
 }
 
-// RemoveMigration reverts the last migration
+// RemoveMigration reverts the last migration.
+// The down migration of the most recently added migration is executed, and the migration deleted from the table.
 func RemoveMigration(db DB) error {
 	tx, err := db.Begin()
 	if err != nil {
@@ -197,7 +201,8 @@ func RemoveMigration(db DB) error {
 	return tx.Commit()
 }
 
-// RemoveAllMigrations reverts all migrations
+// RemoveAllMigrations reverts all migrations.
+// See RemoveMigration for further info.
 func RemoveAllMigrations(db DB) (int, error) {
 	var n int
 
@@ -217,7 +222,7 @@ func RemoveAllMigrations(db DB) (int, error) {
 	}
 }
 
-// RemoveMigrationsUntil pops until a migration with given name is reached
+// RemoveMigrationsUntil remvoes migrations until a migration with name is encountered.
 func RemoveMigrationsUntil(db DB, name string) error {
 	var (
 		mig *Migration
@@ -241,7 +246,7 @@ func RemoveMigrationsUntil(db DB, name string) error {
 	}
 }
 
-// GetLatestMigration returns the latest migration executed
+// GetLatestMigration returns the latest migration added
 func GetLatestMigration(db DB) (*Migration, error) {
 	sql := fmt.Sprintf(`SELECT id, name, description, up, down, position, migrated_at FROM %s ORDER BY position DESC`, MigrationTable())
 	row := db.QueryRow(sql)
@@ -265,7 +270,7 @@ func GetLatestMigration(db DB) (*Migration, error) {
 	return &mig, nil
 }
 
-// ListMigrations returns all the executed migrations
+// ListMigrations returns all migrations
 func ListMigrations(db DB) ([]Migration, error) {
 	sql := fmt.Sprintf(`SELECT id, name, description, up, down, position, migrated_at FROM %s ORDER BY position ASC`, MigrationTable())
 	rows, err := db.Query(sql)
