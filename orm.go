@@ -13,15 +13,31 @@ import (
 type (
 	// DB interface allows for interoperability between sql.Tx and sql.DB types
 	DB interface {
+		Beginner
+		QuerierExecuter
+	}
+
+	Beginner interface {
 		Begin() (*sql.Tx, error)
+	}
+
+	Executer interface {
 		Exec(sql string, args ...any) (sql.Result, error)
+	}
+
+	Querier interface {
 		Query(sql string, args ...any) (*sql.Rows, error)
 		QueryRow(sql string, args ...any) *sql.Row
 	}
 
+	QuerierExecuter interface {
+		Querier
+		Executer
+	}
+
 	Rows interface {
 		Next() bool
-		Close()
+		Close() error
 		Scan(...any) error
 	}
 
@@ -41,13 +57,13 @@ var (
 )
 
 // Exec executes the sql string returning any error encountered
-func Exec(db DB, sql string, args ...any) error {
+func Exec(db Executer, sql string, args ...any) error {
 	_, err := db.Exec(sql, args...)
 	return err
 }
 
 // Query executes an sql statement and scans the result set into v
-func Query[T any](db DB, v *[]T, sql string, args ...any) error {
+func Query[T any](db Querier, v *[]T, sql string, args ...any) error {
 	var t T
 	_, err := schema.Get(&t)
 	if err != nil {
@@ -76,7 +92,7 @@ func Query[T any](db DB, v *[]T, sql string, args ...any) error {
 }
 
 // List is a select over columns defined in v
-func List[T any](db DB, v *[]T, sql string, args ...any) error {
+func List[T any](db Querier, v *[]T, sql string, args ...any) error {
 	var t T
 	schema, err := schema.Get(&t)
 	if err != nil {
@@ -108,7 +124,7 @@ func List[T any](db DB, v *[]T, sql string, args ...any) error {
 }
 
 // QueryRow executes a given sql query and scans the result into v
-func QueryRow(db DB, v any, sql string, args ...any) error {
+func QueryRow(db Querier, v any, sql string, args ...any) error {
 	_, err := schema.Get(v)
 	if err != nil {
 		return err
@@ -120,7 +136,7 @@ func QueryRow(db DB, v any, sql string, args ...any) error {
 
 // Get returns the first row encountered.
 // The sql string is placed immediately after the SELECT statement.
-func Get(db DB, v any, s string, args ...any) error {
+func Get(db Querier, v any, s string, args ...any) error {
 	sch, err := schema.Get(v)
 	if err != nil {
 		return err
@@ -147,7 +163,7 @@ func Get(db DB, v any, s string, args ...any) error {
 	return scanRow(row, v)
 }
 
-func GetByID(db DB, v any) error {
+func GetByID(db Querier, v any) error {
 	sch, err := schema.Get(v)
 	if err != nil {
 		return err
@@ -166,12 +182,12 @@ func GetByID(db DB, v any) error {
 
 // ListAll is the same as List with an empty sql string.
 // It will return all rows from the table deduced by v and is equivalent to a select from table.
-func ListAll[T any](db DB, v *[]T) error {
+func ListAll[T any](db Querier, v *[]T) error {
 	return List(db, v, "")
 }
 
 // Add inserts v into designated table. ID is set on v if available
-func Add(db DB, v any) error {
+func Add(db QuerierExecuter, v any) error {
 	sch, err := schema.Get(v)
 	if err != nil {
 		return err
@@ -200,7 +216,7 @@ func Add(db DB, v any) error {
 	return row.Scan(addr)
 }
 
-func DropTable(db DB, v any) error {
+func DropTable(db Executer, v any) error {
 	sch, err := schema.Get(v)
 	if err != nil {
 		return err
@@ -210,7 +226,7 @@ func DropTable(db DB, v any) error {
 	return Exec(db, s)
 }
 
-func Remove(db DB, v any, s string, args ...any) error {
+func Remove(db Executer, v any, s string, args ...any) error {
 	sch, err := schema.Get(v)
 	if err != nil {
 		return err
@@ -219,7 +235,7 @@ func Remove(db DB, v any, s string, args ...any) error {
 	return Exec(db, sqlstr, args...)
 }
 
-func RemoveByID(db DB, v any) error {
+func RemoveByID(db Executer, v any) error {
 	sch, err := schema.Get(v)
 	if err != nil {
 		return err
@@ -238,7 +254,7 @@ func RemoveByID(db DB, v any) error {
 	return Exec(db, sql, val)
 }
 
-func Update(db DB, v any, sql string, args ...any) error {
+func Update(db Executer, v any, sql string, args ...any) error {
 	start := len(args) + 1
 	sch, err := schema.Get(v)
 	if err != nil {
@@ -261,7 +277,7 @@ func Update(db DB, v any, sql string, args ...any) error {
 }
 
 // UpdateByID sets values by the identity. If no id is found, UpdateByID return ErrNoIdentity
-func UpdateByID(db DB, v any) error {
+func UpdateByID(db Executer, v any) error {
 	sch, err := schema.Get(v)
 	if err != nil {
 		return err
