@@ -342,6 +342,26 @@ func CollectRows[T any](rows Rows) (items []T, err error) {
 	return
 }
 
+// TableName returns the deduced table name for v.
+// Returns empty string if deduction fails
+func TableName(v any) string {
+	sch, err := schema.Get(v)
+	if err != nil {
+		return ""
+	}
+	return sch.Table
+}
+
+// Columns allows for performing actions
+func Columns(v any) schema.Columns {
+	sch, err := schema.Get(v)
+	if err != nil {
+		return []string{}
+	}
+
+	return sch.Fields.Columns()
+}
+
 // gets the address of the struct value at a given index
 func getAddrAtIndex(v any, index []int) interface{} {
 	return reflect.ValueOf(v).Elem().FieldByIndex(index).Addr().Interface()
