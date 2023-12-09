@@ -352,6 +352,35 @@ func TableName(v any) string {
 	return sch.Table
 }
 
+func CountAll(q Querier, v any) (int64, error) {
+	return Count(q, v, "")
+}
+
+func Count(q Querier, v any, sql string, args ...any) (count int64, err error) {
+	sch, err := schema.Get(v)
+	if err != nil {
+		return
+	}
+
+	sqlstr := fmt.Sprintf("SELECT COUNT(*) FROM %s", sch.Table)
+	if sql != "" {
+		sqlstr = fmt.Sprintf("%s %s", sqlstr, sql)
+	}
+
+	row := q.QueryRow(sqlstr, args...)
+	if row == nil {
+		err = ErrNotFound
+		return
+	}
+
+	if err = row.Err(); err != nil {
+		return
+	}
+
+	err = row.Scan(&count)
+	return
+}
+
 // Columns allows for performing actions
 func Columns(v any) schema.Columns {
 	sch, err := schema.Get(v)
