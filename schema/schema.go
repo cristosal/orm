@@ -42,7 +42,7 @@ func Get(v interface{}) (sch *Schema, err error) {
 	rec, isRecord := v.(Record)
 	if isRecord {
 		table = rec.TableName()
-		sch := lookup(table)
+		sch := Lookup(table)
 		if sch != nil {
 			return sch, nil
 		}
@@ -57,8 +57,8 @@ func Get(v interface{}) (sch *Schema, err error) {
 		table = snakecase(typ.Name())
 	}
 
-	if lookup(table) != nil {
-		return lookup(table), nil
+	if Lookup(table) != nil {
+		return Lookup(table), nil
 	}
 
 	sch = new(Schema)
@@ -330,7 +330,7 @@ func snakecase(input string) string {
 	return buf.String()
 }
 
-func lookup(key string) *Schema {
+func Lookup(key string) *Schema {
 	schemaCacheMtx.RLock()
 	defer schemaCacheMtx.RUnlock()
 	return schemaCache[key]
