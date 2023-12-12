@@ -23,6 +23,16 @@ func (c Columns) ValueList(start int) string {
 	return strings.Join(parts, ", ")
 }
 
+// ValueList returns a postgres parameter list in the format of $1, $2, ...
+// The start value determines when counting starts.
+func ValueList(length, start int) string {
+	var parts []string
+	for i := 0; i < length; i++ {
+		parts = append(parts, fmt.Sprintf("$%d", start+i))
+	}
+	return strings.Join(parts, ", ")
+}
+
 // PrefixedList returns a List where each column is prefixed by the given argument.
 // A '.' is automatically added to the prefix
 func (c Columns) PrefixedList(prefix string) string {
