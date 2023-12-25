@@ -20,8 +20,10 @@ const (
 var (
 	ErrNoMigration = errors.New("no migration found")
 
-	tableName  string = "_migrations"
-	schemaName string = "public"
+	ErrUnknownDriver = errors.New("unknown driver")
+
+	migrationTablename string = "_migrations"
+	schemaName         string = "public"
 )
 
 // Migration is a structured change to the database
@@ -31,19 +33,23 @@ type Migration struct {
 	Description string `mapstructure:"description"`
 	Up          string `mapstructure:"up"`
 	Down        string `mapstructure:"down"`
-	Position    int64
 	MigratedAt  time.Time
 }
 
 // MigrationTable returns the fully qualified, schema prefixed table name
 func MigrationTable() string {
-	return schemaName + "." + tableName
+	switch driver {
+	case "pgx", "postgres":
+		return schemaName + "." + migrationTablename
+	default:
+		return migrationTablename
+	}
 }
 
 // SetMigrationTable sets the default table where migrations will be stored and executed
 func SetMigrationTable(table string) {
 	if table != "" {
-		tableName = table
+		migrationTablename = table
 	}
 }
 
@@ -54,16 +60,30 @@ func SetSchema(schema string) {
 	}
 }
 
-// CreateMigrationTable creates the table and schema where migrations will be stored and executed.
-// The name of the table can be set using the SetMigrationTable method.
-// The name of the schema can be set using the SetSchema method.
-func CreateMigrationTable(db DB) error {
+func createMigrationTableSqlite(db DB) error {
+	if migrationTablename == "" {
+		migrationTablename = defaultMigrationTable
+	}
+
+	_, err := db.Exec(fmt.Sprintf(`CREATE TABLE IF NOT EXISTS %s (
+		id INTEGER PRIMARY KEY,
+		name TEXT NOT NULL UNIQUE,
+		description TEXT,
+		up TEXT,
+		down TEXT,
+		migrated_at TEXT
+	);`, migrationTablename))
+
+	return err
+}
+
+func createMigrationTablePostgres(db DB) error {
 	if schemaName == "" {
 		schemaName = defaultSchemaName
 	}
 
-	if tableName == "" {
-		tableName = defaultMigrationTable
+	if migrationTablename == "" {
+		migrationTablename = defaultMigrationTable
 	}
 
 	_, err := db.Exec(fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", schemaName))
@@ -77,11 +97,24 @@ func CreateMigrationTable(db DB) error {
 		description TEXT,
 		up TEXT,
 		down TEXT,
-		position SERIAL NOT NULL,
 		migrated_at TIMESTAMPTZ
 	);`, MigrationTable()))
 
 	return err
+}
+
+// CreateMigrationTable creates the table and schema where migrations will be stored and executed.
+// The name of the table can be set using the SetMigrationTable method.
+// The name of the schema can be set using the SetSchema method.
+func CreateMigrationTable(db DB) error {
+	switch driver {
+	case "sqlite3":
+		return createMigrationTableSqlite(db)
+	case "postgres", "pgx":
+		return createMigrationTablePostgres(db)
+	default:
+		return ErrUnknownDriver
+	}
 }
 
 // DropMigrationTable
@@ -108,7 +141,6 @@ func AddMigration(db DB, migration *Migration) error {
 	)
 
 	row.Scan(&name)
-
 	// return nil if migration has already been executed
 	if name == migration.Name {
 		return nil
@@ -173,7 +205,7 @@ func RemoveMigration(db DB) error {
 
 	defer tx.Rollback()
 
-	stmt := fmt.Sprintf(`SELECT name, down FROM %s ORDER BY position DESC`, MigrationTable())
+	stmt := fmt.Sprintf(`SELECT name, down FROM %s ORDER BY migrated_at DESC`, MigrationTable())
 	row := tx.QueryRow(stmt)
 
 	var (
@@ -248,7 +280,7 @@ func RemoveMigrationsUntil(db DB, name string) error {
 
 // GetLatestMigration returns the latest migration added
 func GetLatestMigration(db DB) (*Migration, error) {
-	sql := fmt.Sprintf(`SELECT id, name, description, up, down, position, migrated_at FROM %s ORDER BY position DESC`, MigrationTable())
+	sql := fmt.Sprintf(`SELECT id, name, description, up, down, migrated_at FROM %s ORDER BY migrated_at DESC`, MigrationTable())
 	row := db.QueryRow(sql)
 
 	if err := row.Err(); err != nil {
@@ -262,7 +294,6 @@ func GetLatestMigration(db DB) (*Migration, error) {
 		&mig.Description,
 		&mig.Up,
 		&mig.Down,
-		&mig.Position,
 		&mig.MigratedAt); err != nil {
 		return nil, err
 	}
@@ -272,7 +303,7 @@ func GetLatestMigration(db DB) (*Migration, error) {
 
 // ListMigrations returns all migrations
 func ListMigrations(db DB) ([]Migration, error) {
-	sql := fmt.Sprintf(`SELECT id, name, description, up, down, position, migrated_at FROM %s ORDER BY position ASC`, MigrationTable())
+	sql := fmt.Sprintf(`SELECT id, name, description, up, down, migrated_at FROM %s ORDER BY migrated_at ASC`, MigrationTable())
 	rows, err := db.Query(sql)
 
 	if err != nil {
@@ -289,7 +320,6 @@ func ListMigrations(db DB) ([]Migration, error) {
 			&migration.Description,
 			&migration.Up,
 			&migration.Down,
-			&migration.Position,
 			&migration.MigratedAt); err != nil {
 			return migrations, err
 		}
@@ -312,7 +342,7 @@ func parseMigrationTmpl(sql string) (string, error) {
 
 	if err := t.Execute(b, map[string]string{
 		"Schema":         schemaName,
-		"MigrationTable": tableName,
+		"MigrationTable": migrationTablename,
 	}); err != nil {
 		return "", fmt.Errorf("error executing migration template: %w", err)
 	}

@@ -54,7 +54,18 @@ var (
 	// The error occurs when the interface passed in as the v argument of an orm func is invalid.
 	// Most orm funcs accept either a pointer to a struct, or pointer to a slice of structs.
 	ErrInvalidType = schema.ErrInvalidType
+
+	driver string = "pgx"
 )
+
+func SetDriver(d string) {
+	driver = d
+}
+
+func isPostgres() bool {
+	return driver == "pgx" || driver == "postgres"
+
+}
 
 // Exec executes the sql string returning any error encountered
 func Exec(db Executer, sql string, args ...any) error {
@@ -200,6 +211,13 @@ func Add(db QuerierExecuter, v any) error {
 		return err
 	}
 
+	// TODO: change in feature to allow for LastInsertID to be set on non postgres drivers
+	if !isPostgres() {
+		// we do not assign last insert id
+		return Exec(db, sql, vals...)
+	}
+
+	// the below only happens in postgres (returning clause)
 	id, index, err := sch.Fields.FindPK()
 	if errors.Is(err, schema.ErrFieldNotFound) {
 		return Exec(db, sql, vals...)
