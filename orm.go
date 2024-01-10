@@ -92,7 +92,7 @@ func Query[T any](db Querier, v *[]T, sql string, args ...any) error {
 	for rows.Next() {
 		var row T
 
-		if err := scanRow(rows, &row); err != nil {
+		if err := Scan(rows, &row); err != nil {
 			return err
 		}
 
@@ -124,7 +124,7 @@ func List[T any](db Querier, v *[]T, sql string, args ...any) error {
 	for rows.Next() {
 		// generics are need for instantiation here
 		var row T
-		if err := scanRow(rows, &row); err != nil {
+		if err := Scan(rows, &row); err != nil {
 			return err
 		}
 
@@ -142,7 +142,7 @@ func QueryRow(db Querier, v any, sql string, args ...any) error {
 	}
 
 	row := db.QueryRow(sql, args...)
-	return scanRow(row, v)
+	return Scan(row, v)
 }
 
 // Get returns the first row encountered.
@@ -171,7 +171,7 @@ func Get(db Querier, v any, s string, args ...any) error {
 		return row.Err()
 	}
 
-	return scanRow(row, v)
+	return Scan(row, v)
 }
 
 func GetByID(db Querier, v any) error {
@@ -347,7 +347,7 @@ func CollectRows[T any](rows Rows) (items []T, err error) {
 	defer rows.Close()
 	for rows.Next() {
 		var t T
-		if err := scanRow(rows, &t); err != nil {
+		if err := Scan(rows, &t); err != nil {
 			return nil, err
 		}
 		items = append(items, t)
@@ -409,6 +409,16 @@ func Columns(v any) schema.Columns {
 	return sch.Fields.Columns()
 }
 
+// Scan scans the row to value
+func Scan(row Row, v any) error {
+	vals, err := schema.Addrs(v)
+	if err != nil {
+		return err
+	}
+
+	return row.Scan(vals...)
+}
+
 // gets the address of the struct value at a given index
 func getAddrAtIndex(v any, index []int) interface{} {
 	return reflect.ValueOf(v).Elem().FieldByIndex(index).Addr().Interface()
@@ -417,13 +427,4 @@ func getAddrAtIndex(v any, index []int) interface{} {
 // gets the concrete value at given index
 func getValueAtIndex(v any, index []int) interface{} {
 	return reflect.ValueOf(v).Elem().FieldByIndex(index).Interface()
-}
-
-func scanRow(row Row, v any) error {
-	vals, err := schema.Addrs(v)
-	if err != nil {
-		return err
-	}
-
-	return row.Scan(vals...)
 }
