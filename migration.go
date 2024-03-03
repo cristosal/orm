@@ -33,6 +33,8 @@ type Migration struct {
 	Description string `mapstructure:"description"`
 	Up          string `mapstructure:"up"`
 	Down        string `mapstructure:"down"`
+	UpBuilder   fmt.Stringer
+	DownBuilder fmt.Stringer
 	MigratedAt  time.Time
 }
 

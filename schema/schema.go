@@ -13,17 +13,17 @@ import (
 var (
 	ErrInvalidType   = errors.New("invalid type")
 	ErrFieldNotFound = errors.New("field not found")
-	schemaCache      = make(map[string]*Schema)
+	schemaCache      = make(map[string]*StructMapping)
 	schemaCacheMtx   = new(sync.RWMutex)
 )
 
 type (
-	// Schema contains the database mapping information for a given type
-	Schema struct {
-		Parent *Schema      // Not nil if schema represents an embeded type
-		Table  string       // Table name in databse
-		Type   reflect.Type // Underlying reflect type
-		Fields Fields       // Field mappings
+	// StructMapping contains the database mapping information for a given type
+	StructMapping struct {
+		Parent *StructMapping // Not nil if schema represents an embeded type
+		Table  string         // Table name in databse
+		Type   reflect.Type   // Underlying reflect type
+		Fields Fields         // Field mappings
 	}
 
 	// Record is implemented by structs which wish to override the default table name
@@ -33,11 +33,11 @@ type (
 )
 
 // IsRoot is true when the schema is not embeded
-func (s *Schema) IsRoot() bool { return s.Parent == nil }
+func (s *StructMapping) IsRoot() bool { return s.Parent == nil }
 
 // Get returns a schema representing the mapping between the go type and database row.
 // Schemas are cached by table name so as not to repeat analisis unnecesarily.
-func Get(v interface{}) (sch *Schema, err error) {
+func Get(v interface{}) (sch *StructMapping, err error) {
 	var table string
 	rec, isRecord := v.(Record)
 	if isRecord {
@@ -61,7 +61,7 @@ func Get(v interface{}) (sch *Schema, err error) {
 		return Lookup(table), nil
 	}
 
-	sch = new(Schema)
+	sch = new(StructMapping)
 	sch.Table = table
 	sch.Type = typ
 
@@ -72,7 +72,7 @@ func Get(v interface{}) (sch *Schema, err error) {
 			embeded, _ := Get(val.Field(i).Interface())
 			embeded.Parent = sch
 
-			sch.Fields = append(sch.Fields, Field{
+			sch.Fields = append(sch.Fields, FieldMapping{
 				Name:   field.Name,
 				Index:  i,
 				Schema: embeded,
@@ -87,7 +87,7 @@ func Get(v interface{}) (sch *Schema, err error) {
 
 		if dbTag == "" {
 			col := snakecase(field.Name)
-			finfo := Field{
+			finfo := FieldMapping{
 				Name:     field.Name,
 				Column:   col,
 				Index:    i,
@@ -101,7 +101,7 @@ func Get(v interface{}) (sch *Schema, err error) {
 
 		parts := strings.Split(dbTag, ",")
 		column := strings.Trim(parts[0], " ")
-		info := Field{
+		info := FieldMapping{
 			Name:     field.Name,
 			Index:    i,
 			Column:   column,
@@ -149,7 +149,7 @@ func Get(v interface{}) (sch *Schema, err error) {
 }
 
 // MustGet panics if Get fails. See Get for further information
-func MustGet(v interface{}) *Schema {
+func MustGet(v interface{}) *StructMapping {
 	sch, err := Get(v)
 	if err != nil {
 		panic(err)
@@ -160,7 +160,7 @@ func MustGet(v interface{}) *Schema {
 
 // ClearCache clears the schema cache
 func ClearCache() {
-	schemaCache = make(map[string]*Schema)
+	schemaCache = make(map[string]*StructMapping)
 }
 
 // Addrs returns all scannable values from a given struct.
@@ -330,13 +330,13 @@ func snakecase(input string) string {
 	return buf.String()
 }
 
-func Lookup(key string) *Schema {
+func Lookup(key string) *StructMapping {
 	schemaCacheMtx.RLock()
 	defer schemaCacheMtx.RUnlock()
 	return schemaCache[key]
 }
 
-func save(key string, s *Schema) {
+func save(key string, s *StructMapping) {
 	schemaCacheMtx.Lock()
 	defer schemaCacheMtx.Unlock()
 	schemaCache[key] = s

@@ -6,11 +6,20 @@ import (
 	"github.com/cristosal/orm/schema"
 )
 
-func TestTables(t *testing.T) {
-	td := schema.TableDefinition{}
+type UsersTable struct {
+	ID *schema.ColumnDefinition
+}
 
-	// schema action { action name CreateTable -> Schema.TableDefiniton }
-	//well this will do shit
+func TestDropTableAction(t *testing.T) {
+	got := schema.DropTable("users").String()
+	expected := "DROP TABLE users"
+
+	if expected != got {
+		t.Fatalf("expected: %s\ngot: %s", expected, got)
+	}
+}
+
+func TestCreateTableAction(t *testing.T) {
 	createUsersTableAction := schema.CreateTable("users", func(t *schema.TableDefinition) {
 		t.Serial("id").PrimaryKey()
 		t.String("name").NotNull()
@@ -25,12 +34,10 @@ func TestTables(t *testing.T) {
 		t.Fatalf("expected: %s\ngot: %s", expected, createUsersTableAction.String())
 
 	}
+}
 
-	schema.CreateTable("profile", func(t *schema.TableDefinition) {
-		t.Timestamp("last_login")
-		t.Text("color_theme").NotNull().Default("rgb(1, 2, 3)")
-	})
-
+func TestTableDefinition(t *testing.T) {
+	td := schema.TableDefinition{}
 	tt := [][]string{
 		{td.Serial("id").PrimaryKey().String(), "id SERIAL PRIMARY KEY"},
 		{td.Varchar("name", 255).NotNull().Default("John Doe").String(), "name VARCHAR(255) NOT NULL DEFAULT 'John Doe'"},

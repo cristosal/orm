@@ -1,14 +1,14 @@
 package schema
 
-// Field contains mapping information between struct field and database column
-type Field struct {
-	Name     string  // Name of the field in the struct
-	Column   string  // Name of the database column
-	Index    int     // Index of the field within a struct
-	ReadOnly bool    // Is only for select queries
-	FK       *FK     // Foreign key meta data
-	PK       bool    // Is a pk field
-	Schema   *Schema // Embeded schema
+// FieldMapping contains mapping information between struct field and database column
+type FieldMapping struct {
+	Name     string         // Name of the field in the struct
+	Column   string         // Name of the database column
+	Index    int            // Index of the field within a struct
+	ReadOnly bool           // Is only for select queries
+	FK       *FK            // Foreign key meta data
+	PK       bool           // Is a pk field
+	Schema   *StructMapping // Embeded schema
 }
 
 // FK represents foreign key field metadata
@@ -18,15 +18,15 @@ type FK struct {
 }
 
 // HasSchema returns true when the field contains an embeded schema
-func (f *Field) HasSchema() bool { return f.Schema != nil }
+func (f *FieldMapping) HasSchema() bool { return f.Schema != nil }
 
 // IsWriteable is true when the fields value can be included in an insert or update statement
-func (f *Field) IsWriteable() bool { return !f.ReadOnly && !f.PK }
+func (f *FieldMapping) IsWriteable() bool { return !f.ReadOnly && !f.PK }
 
-type Fields []Field
+type Fields []FieldMapping
 
 // Find recursively searches for the field that matches the predicate and returns the field along with the index path
-func (fields Fields) Find(predicate func(*Field) bool) (*Field, []int, error) {
+func (fields Fields) Find(predicate func(*FieldMapping) bool) (*FieldMapping, []int, error) {
 	var index []int
 
 	for _, field := range fields {
@@ -52,22 +52,22 @@ func (fields Fields) Find(predicate func(*Field) bool) (*Field, []int, error) {
 }
 
 // FindByColumn returns the field and index which has the given column name
-func (fields Fields) FindByColumn(col string) (*Field, []int, error) {
-	return fields.Find(func(f *Field) bool {
+func (fields Fields) FindByColumn(col string) (*FieldMapping, []int, error) {
+	return fields.Find(func(f *FieldMapping) bool {
 		return f.Column == col
 	})
 }
 
 // FindPK returns the first identity field found
-func (fields Fields) FindPK() (*Field, []int, error) {
-	return fields.Find(func(f *Field) bool {
+func (fields Fields) FindPK() (*FieldMapping, []int, error) {
+	return fields.Find(func(f *FieldMapping) bool {
 		return f.PK
 	})
 }
 
 // FindFKS are fields representing foreign keys
 func (fields Fields) FindFKS() Fields {
-	info := []Field{}
+	info := []FieldMapping{}
 	for _, f := range fields {
 		if f.FK != nil {
 			info = append(info, f)
