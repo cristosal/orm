@@ -1,60 +1,56 @@
 package qb
 
-import "fmt"
-
-type addColumnStmt struct {
-	tableName string
-	col       *ColumnDefinition
+func SetDataType(table, column, dataType string) *QueryBuilder {
+	qb := New()
+	qb.write("ALTER TABLE ")
+	qb.write(table)
+	qb.write(" ALTER COLUMN ")
+	qb.write(column)
+	qb.write(" SET DATA TYPE ")
+	qb.write(dataType)
+	return qb
 }
 
-func (stmt addColumnStmt) String() string {
-	return fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s", stmt.tableName, stmt.col)
+// would need a standalone one as well
+func AddColumn(table string, col string) *QueryBuilder {
+	qb := New()
+	qb.write("ALTER TABLE ")
+	qb.write(table)
+	qb.write(" ADD COLUMN ")
+	qb.write(col)
+	return qb
 }
 
-func AddColumn(table string, column *ColumnDefinition) fmt.Stringer {
-	return addColumnStmt{table, column}
+func RenameTable(tableName, newTableName string) *QueryBuilder {
+	qb := New()
+	qb.write("ALTER TABLE ")
+	qb.write(tableName)
+	qb.write(" RENAME TO ")
+	qb.write(newTableName)
+	return qb
 }
 
-type renameTableStmt struct{ tableName, newTableName string }
-
-func (stmt renameTableStmt) String() string {
-	return fmt.Sprintf("ALTER TABLE %s RENAME TO %s", stmt.tableName, stmt.newTableName)
+func RenameConstraint(tableName, constraintName, newConstraintName string) *QueryBuilder {
+	qb := New()
+	qb.b.WriteString("ALTER TABLE " + tableName + " RENAME CONSTRAINT " + constraintName + " TO " + newConstraintName)
+	return qb
 }
 
-func RenameTable(tableName, newTableName string) fmt.Stringer {
-	return renameTableStmt{tableName, newTableName}
+func RenameColumn(tableName, columnName, newColumnName string) *QueryBuilder {
+	qb := New()
+	qb.b.WriteString("ALTER TABLE " + tableName + " RENAME COLUMN " + columnName + " TO " + newColumnName)
+	return qb
 }
 
-type renameConstraintStmt struct{ tableName, constraintName, newConstraintName string }
-
-func (stmt renameConstraintStmt) String() string {
-	return fmt.Sprintf("ALTER TABLE %s RENAME CONSTRAINT %s TO %s",
-		stmt.tableName, stmt.constraintName, stmt.newConstraintName)
-}
-
-func RenameConstraint(tableName, constraintName, newConstraintName string) fmt.Stringer {
-	return renameConstraintStmt{tableName, constraintName, newConstraintName}
-}
-
-type renameColumnStmt struct{ tableName, columnName, newColumnName string }
-
-func (stmt renameColumnStmt) String() string {
-	return fmt.Sprintf("ALTER TABLE %s RENAME COLUMN %s TO %s", stmt.tableName, stmt.columnName, stmt.newColumnName)
-}
-
-func RenameColumn(tableName, columnName, newColumnName string) fmt.Stringer {
-	return renameColumnStmt{tableName, columnName, newColumnName}
-}
-
-type dropColumnStmt struct{ tableName, columnName string }
-
-func (stmt dropColumnStmt) String() string {
-	return fmt.Sprintf("ALTER TABLE %s DROP COLUMN %s", stmt.tableName, stmt.columnName)
-}
-
-func DropColumn(tableName, columnName string) fmt.Stringer {
-	return dropColumnStmt{
-		tableName:  tableName,
-		columnName: columnName,
+func DropColumn(tableName, columnName, action string) *QueryBuilder {
+	qb := New()
+	qb.write("ALTER TABLE ")
+	qb.write(tableName)
+	qb.write(" DROP COLUMN ")
+	qb.write(columnName)
+	if action != "" {
+		qb.write(" " + action)
 	}
+
+	return qb
 }

@@ -1,13 +1,8 @@
 package qb
 
-func DropTable(tableName string) *DropTableAction {
-	return &DropTableAction{tableName: tableName}
-}
-
-type DropTableAction struct {
-	tableName string
-}
-
-func (action *DropTableAction) String() string {
-	return "DROP TABLE " + action.tableName
+func DropTable(tableName string) *QueryBuilder {
+	qb := New()
+	qb.write("DROP TABLE ")
+	qb.write(tableName)
+	return qb
 }

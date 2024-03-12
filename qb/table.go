@@ -1,219 +1,165 @@
 package qb
 
 import (
-	"fmt"
+	"strconv"
 	"strings"
-	"time"
 )
 
-type Columns = []*ColumnDefinition
+func CreateTable(table string, buildFunc func(TableBuilder)) *QueryBuilder {
+	qb := New()
+	qb.b.WriteString("CREATE TABLE IF NOT EXISTS ")
+	qb.b.WriteString(table)
+	qb.b.WriteString(" (")
 
-func Statements(stringers ...fmt.Stringer) string {
-	var stmts []string
-	for _, str := range stringers {
-		stmts = append(stmts, str.String())
-	}
-
-	return strings.Join(stmts, ";\n")
+	// this gets its own builder as its used to determine if a new line should be added
+	t := TableBuilder{new(strings.Builder)}
+	buildFunc(t)
+	qb.b.WriteString(t.Builder.String())
+	qb.b.WriteString(")")
+	return qb
 }
 
-func NowFunc() any { return time.Now() }
+type TableBuilder struct{ *strings.Builder }
 
-func defineColumn(name, typ string) *ColumnDefinition {
-	return &ColumnDefinition{
-		name: name,
-		typ:  typ,
-	}
-
+func (b *TableBuilder) write(sql string) {
+	b.WriteString(sql)
 }
 
-type ColumnDefinition struct {
-	name             string // name of given column
-	typ              string // type of given column can be int or varchar etc..
-	length           int    // length for defining the int
-	primaryKey       bool   // is primary key
-	unique           bool
-	notNull          bool              // is not nullable
-	references       *ColumnDefinition // foreign key, means that Column Definition
-	defaultValue     any
-	defaultValueFunc func() any
+type ColumnBuilder struct{ *strings.Builder }
+
+func (b *TableBuilder) writeColumn(name, typ string) ColumnBuilder {
+	b.maybeWriteComma()
+	b.write(name)
+	b.write(" ")
+	b.write(typ)
+	return ColumnBuilder{b.Builder}
 }
 
-func (cd *ColumnDefinition) String() string {
-	parts := []string{cd.name}
+// this should return foreign key builder
 
-	switch cd.typ {
-	case "VARCHAR", "CHAR":
-		parts = append(parts, fmt.Sprintf("%s(%d)", cd.typ, cd.length))
-	default:
-		parts = append(parts, cd.typ)
-	}
-
-	if cd.primaryKey {
-		parts = append(parts, "PRIMARY KEY")
-	}
-
-	if cd.notNull {
-		parts = append(parts, "NOT NULL")
-	}
-
-	if cd.unique {
-		parts = append(parts, "UNIQUE")
-	}
-
-	var v any
-
-	if cd.defaultValueFunc != nil {
-		v = cd.defaultValueFunc()
-	} else if cd.defaultValue != nil {
-		v = cd.defaultValue
-	}
-
-	// check if v is not nill
-	if v != nil {
-		switch v.(type) {
-		case string:
-			parts = append(parts, fmt.Sprintf("DEFAULT '%s'", v))
-		default:
-			parts = append(parts, fmt.Sprintf("DEFAULT %v", v))
-		}
-	}
-
-	return strings.Join(parts, " ")
+type ForeignKeyBuilder struct {
+	t *TableBuilder
 }
 
-type ForeignKeyDefinition struct {
-	column          string
-	referenceColumn string
-	referenceTable  string
-	onDeleteAction  string
-	onUpdateAction  string
+func (b *TableBuilder) ForeignKey(name, referenceTable, referenceColumn string) ForeignKeyBuilder {
+	b.maybeWriteComma()
+	b.write("FOREIGN KEY (")
+	b.write(name)
+	b.write(") REFERENCES ")
+	b.write(referenceTable)
+	b.write("(")
+	b.write(referenceColumn)
+	b.write(")")
+	return ForeignKeyBuilder{b}
 }
 
-func (fk *ForeignKeyDefinition) String() string {
-	str := fmt.Sprintf("FOREIGN KEY(%s) REFERENCES %s(%s)", fk.column, fk.referenceTable, fk.referenceColumn)
-	if fk.onDeleteAction != "" {
-		str = str + " ON DELETE " + fk.onDeleteAction
-	}
-	if fk.onUpdateAction != "" {
-		str = str + " ON UPDATE " + fk.onUpdateAction
-
-	}
-
-	return str
+func (b ForeignKeyBuilder) OnDelete(action string) ForeignKeyBuilder {
+	b.t.write(" ON DELETE ")
+	b.t.write(action)
+	return b
 }
 
-func ForeignKey(name, referenceTable, referenceColumn string) *ForeignKeyDefinition {
-	return &ForeignKeyDefinition{
-		column:          name,
-		referenceColumn: referenceColumn,
-		referenceTable:  referenceTable,
+func (b ForeignKeyBuilder) OnUpdate(action string) ForeignKeyBuilder {
+	b.t.write(" ON UPDATE ")
+	b.t.write(action)
+	return b
+}
+
+func (b *TableBuilder) SmallInt(name string) ColumnBuilder {
+	return b.writeColumn(name, "SMALLINT")
+}
+
+func (b *TableBuilder) Integer(name string) ColumnBuilder {
+	return b.writeColumn(name, "INTEGER")
+}
+
+func (b *TableBuilder) BigInt(name string) ColumnBuilder {
+	return b.writeColumn(name, "BIGINT")
+}
+
+func (b *TableBuilder) JSON(name string) ColumnBuilder {
+	return b.writeColumn(name, "JSON")
+}
+
+func (b *TableBuilder) JSONB(name string) ColumnBuilder {
+	return b.writeColumn(name, "JSONB")
+}
+
+func (b *TableBuilder) Text(name string) ColumnBuilder {
+	return b.writeColumn(name, "TEXT")
+}
+
+func (b *TableBuilder) maybeWriteComma() {
+	if b.Len() > 0 {
+		b.write(", ")
 	}
 }
 
-func (fk *ForeignKeyDefinition) OnDelete(action string) *ForeignKeyDefinition {
-	fk.onDeleteAction = action
-	return fk
-}
-
-func (fk *ForeignKeyDefinition) OnUpdate(action string) *ForeignKeyDefinition {
-	fk.onUpdateAction = action
-	return fk
-}
-
-func SmallInt(name string) *ColumnDefinition {
-	return defineColumn(name, "SMALLINT")
-}
-
-func Integer(name string) *ColumnDefinition {
-	return defineColumn(name, "INTEGER")
-}
-
-func BigInt(name string) *ColumnDefinition {
-	return defineColumn(name, "BIGINT")
-}
-
-func JSON(name string) *ColumnDefinition {
-	return defineColumn(name, "JSON")
-}
-
-func JSONB(name string) *ColumnDefinition {
-	return defineColumn(name, "JSONB")
-}
-
-func Text(name string) *ColumnDefinition {
-	return defineColumn(name, "TEXT")
-}
-
-func Char(name string, length int) *ColumnDefinition {
-	col := defineColumn(name, "CHAR")
-	col.length = length
+func (b *TableBuilder) Char(name string, length int) ColumnBuilder {
+	col := b.writeColumn(name, "CHAR")
+	col.WriteString("(")
+	col.WriteString(strconv.Itoa(length))
+	col.WriteString(")")
 	return col
 }
 
-func Varchar(name string, length int) *ColumnDefinition {
-	col := defineColumn(name, "VARCHAR")
-	col.length = length
+func (b *TableBuilder) Varchar(name string, length int) ColumnBuilder {
+	col := b.writeColumn(name, "VARCHAR")
+	col.WriteString("(")
+	col.WriteString(strconv.Itoa(length))
+	col.WriteString(")")
 	return col
 }
 
-func Boolean(name string) *ColumnDefinition {
-	return defineColumn(name, "BOOLEAN")
+func (b *TableBuilder) Boolean(name string) ColumnBuilder {
+	return b.writeColumn(name, "BOOLEAN")
 }
 
-func Serial(name string) *ColumnDefinition {
-	return defineColumn(name, "SERIAL")
+func (b *TableBuilder) Serial(name string) ColumnBuilder {
+	return b.writeColumn(name, "SERIAL")
 }
 
-func Time(name string) *ColumnDefinition {
-	return defineColumn(name, "TIME")
+func (b *TableBuilder) Time(name string) ColumnBuilder {
+	return b.writeColumn(name, "TIME")
 }
 
-func Interval(name string) *ColumnDefinition {
-	return defineColumn(name, "INTERVAL")
+func (b *TableBuilder) Interval(name string) ColumnBuilder {
+	return b.writeColumn(name, "INTERVAL")
 }
 
-func Date(name string) *ColumnDefinition {
-	return defineColumn(name, "DATE")
+func (b *TableBuilder) Date(name string) ColumnBuilder {
+	return b.writeColumn(name, "DATE")
 }
 
-func String(name string) *ColumnDefinition {
-	return Varchar(name, 255)
+func (b *TableBuilder) String(name string) ColumnBuilder {
+	return b.Varchar(name, 255)
 }
 
-func Timestamp(name string) *ColumnDefinition {
-	return defineColumn(name, "TIMESTAMP")
+func (b *TableBuilder) Timestamp(name string) ColumnBuilder {
+	return b.writeColumn(name, "TIMESTAMP")
 }
 
-func TimestampTZ(name string) *ColumnDefinition {
-	return defineColumn(name, "TIMESTAMPTZ")
+func (b *TableBuilder) TimestampTZ(name string) ColumnBuilder {
+	return b.writeColumn(name, "TIMESTAMPTZ")
 }
 
-func (cd *ColumnDefinition) References(table string, col *ColumnDefinition) {
-	cd.references = col
+func (b ColumnBuilder) NotNull() ColumnBuilder {
+	b.WriteString(" NOT NULL")
+	return b
 }
 
-func (cd *ColumnDefinition) NotNull() *ColumnDefinition {
-	cd.notNull = true
-	return cd
+func (b ColumnBuilder) PrimaryKey() ColumnBuilder {
+	b.WriteString(" PRIMARY KEY")
+	return b
 }
 
-func (cd *ColumnDefinition) PrimaryKey() *ColumnDefinition {
-	cd.primaryKey = true
-	return cd
+func (b ColumnBuilder) Unique() ColumnBuilder {
+	b.WriteString(" UNIQUE")
+	return b
 }
 
-func (cd *ColumnDefinition) Unique() *ColumnDefinition {
-	cd.unique = true
-	return cd
-}
-
-func (cd *ColumnDefinition) Default(v any) *ColumnDefinition {
-	cd.defaultValue = v
-	return cd
-}
-
-func (cd *ColumnDefinition) DefaultFunc(fn func() any) *ColumnDefinition {
-	cd.defaultValueFunc = fn
-	return cd
+func (b ColumnBuilder) Default(str string) ColumnBuilder {
+	b.WriteString(" DEFAULT ")
+	b.WriteString(str)
+	return b
 }

@@ -7,14 +7,16 @@ import (
 )
 
 func TestCreateTable(t *testing.T) {
-	qb.CreateTable(&qb.TableDefinition{
-		Name: "users",
-		Columns: qb.Columns{
-			qb.Serial("id").PrimaryKey(),
-			qb.String("name").NotNull(),
-			qb.String("email").NotNull().Unique(),
-		},
+	stmt := qb.CreateTable("users", func(t qb.TableBuilder) {
+		t.Serial("id").PrimaryKey()
+		t.String("name").NotNull()
+		t.String("email").NotNull().Unique()
 	})
 
-	qb.DropTable("users")
+	expected := `CREATE TABLE IF NOT EXISTS users (id SERIAL PRIMARY KEY, name VARCHAR(255) NOT NULL, email VARCHAR(255) NOT NULL UNIQUE)`
+	got := stmt.String()
+
+	if got != expected {
+		t.Fatalf("expected: %s\ngot: %s", expected, got)
+	}
 }
