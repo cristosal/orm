@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"strings"
 	"sync"
@@ -39,28 +40,30 @@ func (s *StructMapping) IsRoot() bool { return s.Parent == nil }
 // Schemas are cached by table name so as not to repeat analisis unnecesarily.
 func Get(v interface{}) (sch *StructMapping, err error) {
 	var table string
-	rec, isRecord := v.(Record)
-	if isRecord {
+	typ, val, err := infer(v)
+	if err != nil {
+		return
+	}
+
+	// ensure that the underlying type can be attributed to a record
+	if rec, ok := val.Interface().(Record); ok {
 		table = rec.TableName()
+
 		sch := Lookup(table)
 		if sch != nil {
 			return sch, nil
 		}
 	}
 
-	typ, val, err := infer(v)
-	if err != nil {
-		return
-	}
-
 	if table == "" {
 		table = snakecase(typ.Name())
 	}
 
-	if Lookup(table) != nil {
-		return Lookup(table), nil
+	if mapping := Lookup(table); mapping != nil {
+		return mapping, nil
 	}
 
+	// parse the mapping
 	sch = new(StructMapping)
 	sch.Table = table
 	sch.Type = typ
@@ -243,6 +246,7 @@ func inferValue(v interface{}) (val reflect.Value, err error) {
 	defer func() {
 		_ = recover()
 	}()
+
 	val = reflect.ValueOf(v)
 	err = ErrInvalidType
 
@@ -259,8 +263,17 @@ func inferValue(v interface{}) (val reflect.Value, err error) {
 	return
 }
 
+func Infer(v any) (reflect.Type, reflect.Value, error) {
+	return infer(v)
+}
+
 func infer(v interface{}) (typ reflect.Type, val reflect.Value, err error) {
-	defer func() { _ = recover() }()
+	defer func() {
+		if err := recover(); err != nil {
+			log.Printf("RECOVER %v", err)
+		}
+	}()
+
 	val = reflect.ValueOf(v)
 	typ = val.Type()
 	err = ErrInvalidType
@@ -269,23 +282,26 @@ func infer(v interface{}) (typ reflect.Type, val reflect.Value, err error) {
 	case reflect.Interface:
 		return infer(val.Elem().Interface())
 	case reflect.Slice:
-		typ = typ.Elem()
+		typ = typ.Elem() // we create a brand new array
+		val = reflect.New(typ)
 	case reflect.Pointer:
 		typ = typ.Elem()
 		val = val.Elem()
 
-		// was pointer to interface
+		// pointer to interface
 		if typ.Kind() == reflect.Interface {
 			typ = typ.Elem()
 			val = val.Elem()
+			err = nil
 		}
 
-		// can be pointer to slice
+		// pointer to slice
 		if typ.Kind() == reflect.Slice {
 			return infer(val.Interface())
 		}
 	}
 
+	// get the underlying struct
 	if typ.Kind() != reflect.Struct {
 		err = fmt.Errorf("%w: %s", ErrInvalidType, typ.Kind().String())
 		return

@@ -64,7 +64,6 @@ func SetDriver(d string) {
 
 func isPostgres() bool {
 	return driver == "pgx" || driver == "postgres"
-
 }
 
 // Exec executes the sql string returning any error encountered
@@ -82,7 +81,6 @@ func Query[T any](db Querier, v *[]T, sql string, args ...any) error {
 	}
 
 	rows, err := db.Query(sql, args...)
-
 	if err != nil {
 		return err
 	}
@@ -91,7 +89,6 @@ func Query[T any](db Querier, v *[]T, sql string, args ...any) error {
 
 	for rows.Next() {
 		var row T
-
 		if err := Scan(rows, &row); err != nil {
 			return err
 		}
@@ -103,14 +100,14 @@ func Query[T any](db Querier, v *[]T, sql string, args ...any) error {
 }
 
 // List is a select over columns defined in v
-func List[T any](db Querier, v *[]T, sql string, args ...any) error {
-	var t T
-	schema, err := schema.Get(&t)
+func List(db Querier, v any, sql string, args ...any) error {
+	schema, err := schema.Get(v)
 	if err != nil {
 		return err
 	}
 
 	var (
+		val  = reflect.ValueOf(v).Elem()
 		cols = schema.Fields.Columns().List()
 		sql2 = fmt.Sprintf("SELECT %s FROM %s %s", cols, schema.Table, sql)
 	)
@@ -122,13 +119,13 @@ func List[T any](db Querier, v *[]T, sql string, args ...any) error {
 
 	defer rows.Close()
 	for rows.Next() {
-		// generics are need for instantiation here
-		var row T
-		if err := Scan(rows, &row); err != nil {
+		// this is how you create new items
+		row := reflect.New(schema.Type)
+		if err := Scan(rows, row.Interface()); err != nil {
 			return err
 		}
 
-		*v = append(*v, row)
+		val.Set(reflect.Append(val, row.Elem()))
 	}
 
 	return nil
@@ -193,7 +190,7 @@ func GetByID(db Querier, v any) error {
 
 // ListAll is the same as List with an empty sql string.
 // It will return all rows from the table deduced by v and is equivalent to a select from table.
-func ListAll[T any](db Querier, v *[]T) error {
+func ListAll[T any](db Querier, v any) error {
 	return List(db, v, "")
 }
 
@@ -204,7 +201,7 @@ func Add(db QuerierExecuter, v any) error {
 		return err
 	}
 
-	var cols = sch.Fields.Writeable().Columns()
+	cols := sch.Fields.Writeable().Columns()
 	sql := fmt.Sprintf("insert into %s (%s) values (%s)", sch.Table, cols.List(), cols.ValueList(1))
 	vals, err := schema.Values(v)
 	if err != nil {

@@ -9,22 +9,24 @@ import (
 	"github.com/cristosal/orm/schema"
 )
 
-func TestPaginate(t *testing.T) {
+func TestListAny(t *testing.T) {
 	db := mockDB{}
-	type User struct {
+
+	type A struct {
 		ID       int64
 		Username string
 		Password string
 	}
 
-	var users []User
+	var a A
 
-	orm.Paginate(&db, &users, &orm.PaginationOptions{
-		Page:     1,
-		PageSize: 25,
-	})
+	a.Username = "foo"
+	a.Password = "bar"
 
-	db.ExpectSQL(t, "")
+	var as []A
+
+	orm.List(&db, as, "WHERE username = $1", a.Username)
+	db.ExpectSQL(t, "SELECT id, username, password FROM a WHERE username = $1")
 }
 
 func TestUpdate(t *testing.T) {

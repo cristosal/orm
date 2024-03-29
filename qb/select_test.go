@@ -24,6 +24,8 @@ func TestSelect(t *testing.T) {
 				)
 			)
 		})
+
+		func GetByID(orm.DB, )
 	*/
 
 	tt := [][]string{
