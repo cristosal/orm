@@ -2,31 +2,35 @@ package schema
 
 // FieldMapping contains mapping information between struct field and database column
 type FieldMapping struct {
-	Name     string         // Name of the field in the struct
-	Column   string         // Name of the database column
-	Index    int            // Index of the field within a struct
-	ReadOnly bool           // Is only for select queries
-	FK       *FK            // Foreign key meta data
-	PK       bool           // Is a pk field
-	Schema   *StructMapping // Embeded schema
+	Name         string         // Name of the field in the struct
+	Column       string         // Name of the database column
+	Index        int            // Index of the field within a struct
+	IsReadOnly   bool           // Is only for select queries
+	IsPrimaryKey bool           // Is a pk field
+	ForeignKey   *ForeignKey    // Foreign key meta data
+	Schema       *StructMapping // Embeded schema
 }
 
-// FK represents foreign key field metadata
-type FK struct {
+// ForeignKey represents foreign key field metadata
+type ForeignKey struct {
 	Table  string // Foreign table name
 	Column string // Foreign table column
 }
 
 // HasSchema returns true when the field contains an embeded schema
-func (f *FieldMapping) HasSchema() bool { return f.Schema != nil }
+func (f *FieldMapping) HasSchema() bool {
+	return f.Schema != nil
+}
 
 // IsWriteable is true when the fields value can be included in an insert or update statement
-func (f *FieldMapping) IsWriteable() bool { return !f.ReadOnly && !f.PK }
+func (f *FieldMapping) IsWriteable() bool {
+	return !f.IsReadOnly && !f.IsPrimaryKey
+}
 
-type Fields []FieldMapping
+type FieldMappings []FieldMapping
 
 // Find recursively searches for the field that matches the predicate and returns the field along with the index path
-func (fields Fields) Find(predicate func(*FieldMapping) bool) (*FieldMapping, []int, error) {
+func (fields FieldMappings) Find(predicate func(*FieldMapping) bool) (*FieldMapping, []int, error) {
 	var index []int
 
 	for _, field := range fields {
@@ -52,24 +56,24 @@ func (fields Fields) Find(predicate func(*FieldMapping) bool) (*FieldMapping, []
 }
 
 // FindByColumn returns the field and index which has the given column name
-func (fields Fields) FindByColumn(col string) (*FieldMapping, []int, error) {
+func (fields FieldMappings) FindByColumn(col string) (*FieldMapping, []int, error) {
 	return fields.Find(func(f *FieldMapping) bool {
 		return f.Column == col
 	})
 }
 
 // FindPK returns the first identity field found
-func (fields Fields) FindPK() (*FieldMapping, []int, error) {
+func (fields FieldMappings) FindPK() (*FieldMapping, []int, error) {
 	return fields.Find(func(f *FieldMapping) bool {
-		return f.PK
+		return f.IsPrimaryKey
 	})
 }
 
 // FindFKS are fields representing foreign keys
-func (fields Fields) FindFKS() Fields {
+func (fields FieldMappings) FindFKS() FieldMappings {
 	info := []FieldMapping{}
 	for _, f := range fields {
-		if f.FK != nil {
+		if f.ForeignKey != nil {
 			info = append(info, f)
 		}
 	}
@@ -77,8 +81,8 @@ func (fields Fields) FindFKS() Fields {
 }
 
 // Writeable returns all fields excluding identity and readonly
-func (fields Fields) Writeable() Fields {
-	var ret Fields
+func (fields FieldMappings) Writeable() FieldMappings {
+	var ret FieldMappings
 
 	for _, field := range fields {
 		if !field.IsWriteable() {
@@ -98,7 +102,7 @@ func (fields Fields) Writeable() Fields {
 }
 
 // Columns recursively maps through fields and returns their column names
-func (fields Fields) Columns() (columns Columns) {
+func (fields FieldMappings) Columns() (columns Columns) {
 	for _, f := range fields {
 		if f.HasSchema() {
 			columns = append(columns, f.Schema.Fields.Columns()...)

@@ -51,7 +51,7 @@ func Paginate[T any](db DB, v *[]T, opts *PaginationOptions) (*PaginationResults
 	}
 
 	var t T
-	sch, err := schema.Get(&t)
+	sch, err := schema.GetMapping(&t)
 	if err != nil {
 		return nil, err
 

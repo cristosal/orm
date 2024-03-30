@@ -73,12 +73,13 @@ func Exec(db Executer, sql string, args ...any) error {
 }
 
 // Query executes an sql statement and scans the result set into v
-func Query[T any](db Querier, v *[]T, sql string, args ...any) error {
-	var t T
-	_, err := schema.Get(&t)
+func Query(db Querier, v any, sql string, args ...any) error {
+	mapping, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
+
+	slice := reflect.ValueOf(v).Elem()
 
 	rows, err := db.Query(sql, args...)
 	if err != nil {
@@ -88,12 +89,12 @@ func Query[T any](db Querier, v *[]T, sql string, args ...any) error {
 	defer rows.Close()
 
 	for rows.Next() {
-		var row T
-		if err := Scan(rows, &row); err != nil {
+		row := reflect.New(mapping.Type)
+		if err := Scan(rows, row.Interface()); err != nil {
 			return err
 		}
 
-		*v = append(*v, row)
+		slice.Set(reflect.Append(slice, row.Elem()))
 	}
 
 	return nil
@@ -101,15 +102,15 @@ func Query[T any](db Querier, v *[]T, sql string, args ...any) error {
 
 // List is a select over columns defined in v
 func List(db Querier, v any, sql string, args ...any) error {
-	schema, err := schema.Get(v)
+	mapping, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
 
 	var (
 		val  = reflect.ValueOf(v).Elem()
-		cols = schema.Fields.Columns().List()
-		sql2 = fmt.Sprintf("SELECT %s FROM %s %s", cols, schema.Table, sql)
+		cols = mapping.Fields.Columns().List()
+		sql2 = fmt.Sprintf("SELECT %s FROM %s %s", cols, mapping.Table, sql)
 	)
 
 	rows, err := db.Query(strings.Trim(sql2, " "), args...)
@@ -119,8 +120,8 @@ func List(db Querier, v any, sql string, args ...any) error {
 
 	defer rows.Close()
 	for rows.Next() {
-		// this is how you create new items
-		row := reflect.New(schema.Type)
+		row := reflect.New(mapping.Type)
+
 		if err := Scan(rows, row.Interface()); err != nil {
 			return err
 		}
@@ -133,7 +134,7 @@ func List(db Querier, v any, sql string, args ...any) error {
 
 // QueryRow executes a given sql query and scans the result into v
 func QueryRow(db Querier, v any, sql string, args ...any) error {
-	_, err := schema.Get(v)
+	_, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
@@ -145,7 +146,7 @@ func QueryRow(db Querier, v any, sql string, args ...any) error {
 // Get returns the first row encountered.
 // The sql string is placed immediately after the SELECT statement.
 func Get(db Querier, v any, s string, args ...any) error {
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
@@ -172,7 +173,7 @@ func Get(db Querier, v any, s string, args ...any) error {
 }
 
 func GetByID(db Querier, v any) error {
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
@@ -196,7 +197,7 @@ func ListAll[T any](db Querier, v any) error {
 
 // Add inserts v into designated table. ID is set on v if available
 func Add(db QuerierExecuter, v any) error {
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
@@ -232,7 +233,7 @@ func Add(db QuerierExecuter, v any) error {
 }
 
 func DropTable(db Executer, v any) error {
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
@@ -242,7 +243,7 @@ func DropTable(db Executer, v any) error {
 }
 
 func Remove(db Executer, v any, s string, args ...any) error {
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
@@ -251,7 +252,7 @@ func Remove(db Executer, v any, s string, args ...any) error {
 }
 
 func RemoveByID(db Executer, v any) error {
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
@@ -271,7 +272,7 @@ func RemoveByID(db Executer, v any) error {
 
 func Update(db Executer, v any, sql string, args ...any) error {
 	start := len(args) + 1
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
@@ -293,7 +294,7 @@ func Update(db Executer, v any, sql string, args ...any) error {
 
 // UpdateByID sets values by the identity. If no id is found, UpdateByID return ErrNoIdentity
 func UpdateByID(db Executer, v any) error {
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return err
 	}
@@ -360,7 +361,7 @@ func CollectRows[T any](rows Rows) (items []T, err error) {
 // TableName returns the deduced table name for v.
 // Returns empty string if deduction fails
 func TableName(v any) string {
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return ""
 	}
@@ -372,7 +373,7 @@ func CountAll(q Querier, v any) (int64, error) {
 }
 
 func Count(q Querier, v any, sql string, args ...any) (count int64, err error) {
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return
 	}
@@ -398,7 +399,7 @@ func Count(q Querier, v any, sql string, args ...any) (count int64, err error) {
 
 // Columns allows for performing actions
 func Columns(v any) schema.Columns {
-	sch, err := schema.Get(v)
+	sch, err := schema.GetMapping(v)
 	if err != nil {
 		return []string{}
 	}

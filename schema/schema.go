@@ -18,39 +18,37 @@ var (
 	schemaCacheMtx   = new(sync.RWMutex)
 )
 
-type (
-	// StructMapping contains the database mapping information for a given type
-	StructMapping struct {
-		Parent *StructMapping // Not nil if schema represents an embeded type
-		Table  string         // Table name in databse
-		Type   reflect.Type   // Underlying reflect type
-		Fields Fields         // Field mappings
-	}
+// Record is implemented by structs which wish to override the default table name
+type Record interface {
+	TableName() string
+}
 
-	// Record is implemented by structs which wish to override the default table name
-	Record interface {
-		TableName() string
-	}
-)
+// StructMapping contains the database mapping information for a given type
+type StructMapping struct {
+	Parent *StructMapping // Not nil if schema represents an embeded type
+	Table  string         // Table name in databse
+	Type   reflect.Type   // Underlying reflect type
+	Fields FieldMappings  // Field mappings
+}
 
 // IsRoot is true when the schema is not embeded
-func (s *StructMapping) IsRoot() bool { return s.Parent == nil }
+func (s *StructMapping) IsRoot() bool {
+	return s.Parent == nil
+}
 
-// Get returns a schema representing the mapping between the go type and database row.
-// Schemas are cached by table name so as not to repeat analisis unnecesarily.
-func Get(v interface{}) (sch *StructMapping, err error) {
+// GetMapping returns a mapping between the go type and database row.
+// Results cached by table name so as not to repeat analysis unnecesarily.
+func GetMapping(v any) (mapping *StructMapping, err error) {
 	var table string
-	typ, val, err := infer(v)
+
+	typ, val, err := Reflect(v)
 	if err != nil {
 		return
 	}
 
-	// ensure that the underlying type can be attributed to a record
-	if rec, ok := val.Interface().(Record); ok {
-		table = rec.TableName()
-
-		sch := Lookup(table)
-		if sch != nil {
+	// check if the value implements Record interface
+	if record, ok := val.Interface().(Record); ok {
+		if sch := Lookup(record.TableName()); sch != nil {
 			return sch, nil
 		}
 	}
@@ -64,18 +62,19 @@ func Get(v interface{}) (sch *StructMapping, err error) {
 	}
 
 	// parse the mapping
-	sch = new(StructMapping)
-	sch.Table = table
-	sch.Type = typ
+	mapping = &StructMapping{
+		Table: table,
+		Type:  typ,
+	}
 
 	for i := 0; i < typ.NumField(); i++ {
 		field := typ.Field(i)
 
 		if field.Anonymous && field.IsExported() {
-			embeded, _ := Get(val.Field(i).Interface())
-			embeded.Parent = sch
+			embeded, _ := GetMapping(val.Field(i).Interface())
+			embeded.Parent = mapping
 
-			sch.Fields = append(sch.Fields, FieldMapping{
+			mapping.Fields = append(mapping.Fields, FieldMapping{
 				Name:   field.Name,
 				Index:  i,
 				Schema: embeded,
@@ -91,32 +90,32 @@ func Get(v interface{}) (sch *StructMapping, err error) {
 		if dbTag == "" {
 			col := snakecase(field.Name)
 			finfo := FieldMapping{
-				Name:     field.Name,
-				Column:   col,
-				Index:    i,
-				PK:       col == "id",
-				ReadOnly: col == "id",
+				Name:         field.Name,
+				Column:       col,
+				Index:        i,
+				IsPrimaryKey: col == "id",
+				IsReadOnly:   col == "id",
 			}
 
-			sch.Fields = append(sch.Fields, finfo)
+			mapping.Fields = append(mapping.Fields, finfo)
 			continue
 		}
 
 		parts := strings.Split(dbTag, ",")
 		column := strings.Trim(parts[0], " ")
 		info := FieldMapping{
-			Name:     field.Name,
-			Index:    i,
-			Column:   column,
-			PK:       column == "id",
-			ReadOnly: column == "id",
+			Name:         field.Name,
+			Index:        i,
+			Column:       column,
+			IsPrimaryKey: column == "id",
+			IsReadOnly:   column == "id",
 		}
 
 		for i, part := range parts {
 			if i == 0 {
 				if part == "id" || part == "pk" {
-					info.PK = true
-					info.ReadOnly = true
+					info.IsPrimaryKey = true
+					info.IsReadOnly = true
 				}
 				continue
 			}
@@ -131,7 +130,7 @@ func Get(v interface{}) (sch *StructMapping, err error) {
 					continue
 				}
 
-				info.FK = &FK{
+				info.ForeignKey = &ForeignKey{
 					Table:  parts[0],
 					Column: parts[1],
 				}
@@ -139,26 +138,26 @@ func Get(v interface{}) (sch *StructMapping, err error) {
 				switch part {
 				// TODO: add other cases for db tags here
 				case "ro", "readonly":
-					info.ReadOnly = true
+					info.IsReadOnly = true
 				}
 			}
 		}
 
-		sch.Fields = append(sch.Fields, info)
+		mapping.Fields = append(mapping.Fields, info)
 	}
 
-	save(table, sch)
+	SaveMapping(table, mapping)
 	return
 }
 
 // MustGet panics if Get fails. See Get for further information
-func MustGet(v interface{}) *StructMapping {
-	sch, err := Get(v)
+func MustGet(v any) *StructMapping {
+	mapping, err := GetMapping(v)
 	if err != nil {
 		panic(err)
 	}
 
-	return sch
+	return mapping
 }
 
 // ClearCache clears the schema cache
@@ -168,7 +167,7 @@ func ClearCache() {
 
 // Addrs returns all scannable values from a given struct.
 func Addrs(v interface{}) (values []any, err error) {
-	sch, err := Get(v)
+	mapping, err := GetMapping(v)
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +177,7 @@ func Addrs(v interface{}) (values []any, err error) {
 		return nil, err
 	}
 
-	for _, f := range sch.Fields {
+	for _, f := range mapping.Fields {
 		v := sv.Field(f.Index)
 
 		if f.HasSchema() {
@@ -199,7 +198,7 @@ func Addrs(v interface{}) (values []any, err error) {
 
 // Values returns the values from struct fields not marked as readonly
 func Values(v interface{}) (values []any, err error) {
-	sch, err := Get(v)
+	sch, err := GetMapping(v)
 	if err != nil {
 		return nil, err
 	}
@@ -263,11 +262,9 @@ func inferValue(v interface{}) (val reflect.Value, err error) {
 	return
 }
 
-func Infer(v any) (reflect.Type, reflect.Value, error) {
-	return infer(v)
-}
-
-func infer(v interface{}) (typ reflect.Type, val reflect.Value, err error) {
+// Reflect infers the underlying reflection struct type and reflection value.
+// If the v is a slice the reflect value will be a new zerod value of the slice type
+func Reflect(v any) (typ reflect.Type, val reflect.Value, err error) {
 	defer func() {
 		if err := recover(); err != nil {
 			log.Printf("RECOVER %v", err)
@@ -276,32 +273,34 @@ func infer(v interface{}) (typ reflect.Type, val reflect.Value, err error) {
 
 	val = reflect.ValueOf(v)
 	typ = val.Type()
+
+	// Initialize error in order to return this error when function panics
 	err = ErrInvalidType
 
 	switch typ.Kind() {
 	case reflect.Interface:
-		return infer(val.Elem().Interface())
+		return Reflect(val.Elem().Interface())
 	case reflect.Slice:
-		typ = typ.Elem() // we create a brand new array
-		val = reflect.New(typ)
+		typ = typ.Elem()
+		val = reflect.New(typ).Elem()
 	case reflect.Pointer:
 		typ = typ.Elem()
 		val = val.Elem()
 
-		// pointer to interface
+		// v is a pointer to interface
 		if typ.Kind() == reflect.Interface {
 			typ = typ.Elem()
 			val = val.Elem()
 			err = nil
 		}
 
-		// pointer to slice
+		// v is a pointer to slice
 		if typ.Kind() == reflect.Slice {
-			return infer(val.Interface())
+			return Reflect(val.Interface())
 		}
 	}
 
-	// get the underlying struct
+	// assert that the underlying type is a struct
 	if typ.Kind() != reflect.Struct {
 		err = fmt.Errorf("%w: %s", ErrInvalidType, typ.Kind().String())
 		return
@@ -352,7 +351,7 @@ func Lookup(key string) *StructMapping {
 	return schemaCache[key]
 }
 
-func save(key string, s *StructMapping) {
+func SaveMapping(key string, s *StructMapping) {
 	schemaCacheMtx.Lock()
 	defer schemaCacheMtx.Unlock()
 	schemaCache[key] = s
