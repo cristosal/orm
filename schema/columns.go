@@ -13,6 +13,10 @@ func (c Columns) List() string {
 	return strings.Join(c, ", ")
 }
 
+func (c Columns) Len() int {
+	return len(c)
+}
+
 // ValueList returns a postgres parameter list in the format of $1, $2, ...
 // The start value determines when counting starts.
 func (c Columns) ValueList(start int) string {

@@ -51,10 +51,9 @@ func Paginate[T any](db DB, v *[]T, opts *PaginationOptions) (*PaginationResults
 	}
 
 	var t T
-	sch, err := schema.GetMapping(&t)
+	sch, _, err := schema.GetMapping(&t)
 	if err != nil {
 		return nil, err
-
 	}
 
 	sqlstr := ""
@@ -67,6 +66,8 @@ func Paginate[T any](db DB, v *[]T, opts *PaginationOptions) (*PaginationResults
 		likeClause := strings.Join(parts, " OR ")
 		sqlstr = fmt.Sprintf("WHERE %s", likeClause)
 	}
+
+	CountWhere(sch.Table, sqlstr)
 
 	countQuery := fmt.Sprintf("SELECT COUNT(*) FROM %s %s", sch.Table, sqlstr)
 	var row *sql.Row

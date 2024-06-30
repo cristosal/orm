@@ -26,7 +26,7 @@ type Record interface {
 // StructMapping contains the database mapping information for a given type
 type StructMapping struct {
 	Parent *StructMapping // Not nil if schema represents an embeded type
-	Table  string         // Table name in databse
+	Table  string         // Table name in database
 	Type   reflect.Type   // Underlying reflect type
 	Fields FieldMappings  // Field mappings
 }
@@ -38,7 +38,7 @@ func (s *StructMapping) IsRoot() bool {
 
 // GetMapping returns a mapping between the go type and database row.
 // Results cached by table name so as not to repeat analysis unnecesarily.
-func GetMapping(v any) (mapping *StructMapping, err error) {
+func GetMapping(v any) (mapping *StructMapping, val reflect.Value, err error) {
 	var table string
 
 	typ, val, err := Reflect(v)
@@ -48,8 +48,9 @@ func GetMapping(v any) (mapping *StructMapping, err error) {
 
 	// check if the value implements Record interface
 	if record, ok := val.Interface().(Record); ok {
-		if sch := Lookup(record.TableName()); sch != nil {
-			return sch, nil
+		table = record.TableName()
+		if sch := Lookup(table); sch != nil {
+			return sch, val, nil
 		}
 	}
 
@@ -58,7 +59,7 @@ func GetMapping(v any) (mapping *StructMapping, err error) {
 	}
 
 	if mapping := Lookup(table); mapping != nil {
-		return mapping, nil
+		return mapping, val, nil
 	}
 
 	// parse the mapping
@@ -71,7 +72,7 @@ func GetMapping(v any) (mapping *StructMapping, err error) {
 		field := typ.Field(i)
 
 		if field.Anonymous && field.IsExported() {
-			embeded, _ := GetMapping(val.Field(i).Interface())
+			embeded, _, _ := GetMapping(val.Field(i).Interface())
 			embeded.Parent = mapping
 
 			mapping.Fields = append(mapping.Fields, FieldMapping{
@@ -152,7 +153,7 @@ func GetMapping(v any) (mapping *StructMapping, err error) {
 
 // MustGet panics if Get fails. See Get for further information
 func MustGet(v any) *StructMapping {
-	mapping, err := GetMapping(v)
+	mapping, _, err := GetMapping(v)
 	if err != nil {
 		panic(err)
 	}
@@ -167,12 +168,7 @@ func ClearCache() {
 
 // Addrs returns all scannable values from a given struct.
 func Addrs(v interface{}) (values []any, err error) {
-	mapping, err := GetMapping(v)
-	if err != nil {
-		return nil, err
-	}
-
-	sv, err := inferValue(v)
+	mapping, sv, err := GetMapping(v)
 	if err != nil {
 		return nil, err
 	}
@@ -198,12 +194,7 @@ func Addrs(v interface{}) (values []any, err error) {
 
 // Values returns the values from struct fields not marked as readonly
 func Values(v interface{}) (values []any, err error) {
-	sch, err := GetMapping(v)
-	if err != nil {
-		return nil, err
-	}
-
-	sv, err := inferValue(v)
+	sch, sv, err := GetMapping(v)
 	if err != nil {
 		return nil, err
 	}
@@ -247,6 +238,7 @@ func inferValue(v interface{}) (val reflect.Value, err error) {
 	}()
 
 	val = reflect.ValueOf(v)
+
 	err = ErrInvalidType
 
 	switch val.Kind() {

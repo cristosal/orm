@@ -1,6 +1,6 @@
 package schema
 
-// FieldMapping contains mapping information between struct field and database column
+// FieldMapping contains mapping information between a struct field and database column
 type FieldMapping struct {
 	Name         string         // Name of the field in the struct
 	Column       string         // Name of the database column

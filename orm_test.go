@@ -9,6 +9,58 @@ import (
 	"github.com/cristosal/orm/schema"
 )
 
+func TestInstanceMethods(t *testing.T) {
+
+}
+
+func TestAddMany(t *testing.T) {
+	type User struct {
+		ID       int64
+		Email    string
+		Password string
+	}
+
+	var (
+		mockdb = &mockDB{}
+		db     = orm.New(mockdb)
+		users  = []User{
+			{Email: "user1@example.com", Password: "password"},
+			{Email: "user2@example.com", Password: "password"},
+			{Email: "user3@example.com", Password: "password"},
+		}
+	)
+
+	if err := db.AddMany(users); err != nil {
+		t.Fatal(err)
+	}
+
+	mockdb.ExpectSQL(t, "INSERT INTO user (email, password) VALUES ($1, $2), ($3, $4), ($5, $6)")
+	mockdb.ExpectValueAt(t, 0, "user1@example.com")
+	mockdb.ExpectValueAt(t, 1, "password")
+	mockdb.ExpectValueAt(t, 2, "user2@example.com")
+	mockdb.ExpectValueAt(t, 3, "password")
+}
+
+func TestDbWrapper(t *testing.T) {
+	db := orm.New(&mockDB{})
+
+	type Users struct {
+		ID    int64
+		Email string
+	}
+
+	var users []Users
+
+	db.Add(&Users{
+		Email: "johndoe@gmail.com",
+	})
+
+	// don't know if we can actually test this
+	if err := db.ListAll(&users); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestListAny(t *testing.T) {
 	db := mockDB{}
 
@@ -128,7 +180,8 @@ func (db *mockDB) Begin() (*sql.Tx, error) {
 
 func (db *mockDB) ExpectValueAt(t *testing.T, index int, value interface{}) {
 	if db.Values[index] != value {
-		t.Fatalf("expected value at index %d to be %v\ngot %v", index, db.Values[index], value)
+		t.Fatalf("expected value at index %d to be %v\ngot %v",
+			index, value, db.Values[index])
 	}
 }
 
